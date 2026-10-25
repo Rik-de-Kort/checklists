@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "lib": ["ESNext", "WebWorker"],
+    "rootDir": "src/sw",
+    "outDir": "public",
+    "tsBuildInfoFile": "node_modules/.cache/tsc/sw.tsbuildinfo",
+    "declarationDir": "node_modules/.cache/tsc/types/sw"
+  },
+  "include": ["src/sw"]
+}

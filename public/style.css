@@ -377,3 +377,29 @@ main {
   cursor: pointer;
   padding: 4px;
 }
+
+/* ---------- error banner (errors.ts) ---------- */
+
+.error-banner {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.error-banner span { flex: 1; }
+.error-banner button {
+  flex: none;
+  border: 1px solid #fff;
+  border-radius: 8px;
+  background: transparent;
+  color: #fff;
+  padding: 4px 12px;
+  cursor: pointer;
+}

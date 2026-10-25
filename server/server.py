@@ -3,9 +3,11 @@
 import argparse
 import json
 import sqlite3
+from collections.abc import Callable
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any, Literal, TypedDict
 
 HERE = Path(__file__).resolve().parent
 PUBLIC = HERE.parent / "public"
@@ -55,13 +57,33 @@ class BadRequest(Exception):
     pass
 
 
-def connect(db_path):
+class ChecklistRow(TypedDict):
+    id: str
+    name: str
+    created_at: int
+    updated_at: int
+
+
+class ItemRow(TypedDict):
+    id: str
+    checklist_id: str
+    label: str
+    status: Literal["checked", "unchecked"]
+    created_at: int
+    updated_at: int
+    deleted: int
+
+
+Json = dict[str, Any]
+
+
+def connect(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
 
 
-def checklist_row(c):
+def checklist_row(c: Any) -> ChecklistRow:
     try:
         return {
             "id": str(c["id"]),
@@ -73,7 +95,7 @@ def checklist_row(c):
         raise BadRequest(f"invalid checklist: {e!r}")
 
 
-def item_row(i):
+def item_row(i: Any) -> ItemRow:
     try:
         if i["status"] not in ("checked", "unchecked"):
             raise ValueError(i["status"])
@@ -90,7 +112,7 @@ def item_row(i):
         raise BadRequest(f"invalid item: {e!r}")
 
 
-def push(conn, body):
+def push(conn: sqlite3.Connection, body: Json) -> Json:
     checklists = [checklist_row(c) for c in body.get("checklists", [])]
     items = [item_row(i) for i in body.get("items", [])]
     with conn:
@@ -99,7 +121,7 @@ def push(conn, body):
     return {"ok": True}
 
 
-def pull(conn, body):
+def pull(conn: sqlite3.Connection, body: Json) -> Json:
     ids = body.get("ids")
     if not isinstance(ids, list) or len(ids) > MAX_IDS or not all(isinstance(i, str) for i in ids):
         raise BadRequest(f"ids must be a list of at most {MAX_IDS} strings")
@@ -114,7 +136,7 @@ def pull(conn, body):
     return {"checklists": checklists, "items": items}
 
 
-ROUTES = {"/api/push": push, "/api/pull": pull}
+ROUTES: dict[str, Callable[[sqlite3.Connection, Json], Json]] = {"/api/push": push, "/api/pull": pull}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -125,11 +147,11 @@ class Handler(SimpleHTTPRequestHandler):
         ".svg": "image/svg+xml",
     }
 
-    def __init__(self, *args, db_path, **kwargs):
+    def __init__(self, *args: Any, db_path: str, **kwargs: Any) -> None:
         self.db_path = db_path
         super().__init__(*args, directory=str(PUBLIC), **kwargs)
 
-    def do_POST(self):
+    def do_POST(self) -> None:
         route = ROUTES.get(self.path)
         if route is None:
             return self.send_json(404, {"error": "not found"})
@@ -149,7 +171,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(400, {"error": str(e)})
         self.send_json(200, result)
 
-    def send_json(self, status, data):
+    def send_json(self, status: int, data: Json) -> None:
         payload = json.dumps(data).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -158,7 +180,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(payload)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)

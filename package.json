@@ -1,0 +1,16 @@
+{
+  "name": "checklist",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "watch": "tsc -b --watch",
+    "test": "tsc -b && node --test 'tests/*.test.ts'",
+    "typecheck:server": "uvx mypy --strict server/server.py",
+    "dev": "tsc -b && (tsc -b --watch --preserveWatchOutput & python3 server/server.py)"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "typescript": "7.0.2"
+  }
+}

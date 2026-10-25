@@ -1,8 +1,13 @@
 // View layer: hash router, the overview and checklist pages, and UI event handling.
 // Every store change triggers a full re-render of the current page; data is small.
-import * as store from './store.js';
-import { dispatch, undo, canUndo, describe } from './actions.js';
-import { sync, pull } from './sync.js';
+import * as store from './store.ts';
+import { dispatch, undo, canUndo, describe } from './actions.ts';
+import { sync, pull } from './sync.ts';
+import { message } from './errors.ts';
+import { localDate, relTime, toInstant } from './time.ts';
+import { parseRecords } from './validate.ts';
+import type { ChecklistSummary } from './store.ts';
+import type { Checklist, Item } from './types.ts';
 
 const SWIPE_THRESHOLD = 80;
 const LONG_PRESS_MS = 500;
@@ -20,57 +25,71 @@ const ICONS = {
   trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>',
   check: '<polyline points="20 6 9 17 4 12"/>',
-};
+} as const;
+type IconName = keyof typeof ICONS;
 
-const app = document.getElementById('app');
-const toastEl = document.getElementById('toast');
-const importInput = document.getElementById('import-file');
+type Route = { name: 'overview' } | { name: 'checklist'; id: string };
+type SyncStatus = 'idle' | 'busy' | 'error';
+type Lookup = 'loading' | 'missing' | 'unreachable';
+
+function byId<T extends HTMLElement>(id: string, type: { new (): T }): T {
+  const el = document.getElementById(id);
+  if (!(el instanceof type)) throw new Error(`#${id} is missing from index.html`);
+  return el;
+}
+
+const app = byId('app', HTMLDivElement);
+const toastEl = byId('toast', HTMLDivElement);
+const importInput = byId('import-file', HTMLInputElement);
 
 let route = parseRoute();
-let renderedRoute = null;
+let renderedRoute: string | null = null;
 let rendering = false;
 let renderQueued = false;
-let editingId = null;
-let pendingFocus = null; // data-key of an input to focus and select after the next render
+let editingId: string | null = null;
+let pendingFocus: string | null = null; // data-key of an input to focus and select after the next render
 let scrollToBottom = false;
-let syncStatus = 'idle'; // 'idle' | 'busy' | 'error'
-const remoteLookups = new Map(); // checklist id -> 'loading' | 'missing'
-let toastTimer;
+let syncStatus: SyncStatus = 'idle';
+const remoteLookups = new Map<string, Lookup>();
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-export function init() {
+export function init(): void {
   store.subscribe(render);
   window.addEventListener('hashchange', () => {
     route = parseRoute();
     editingId = null;
-    if (route.name === 'checklist' && remoteLookups.get(route.id) === 'missing') remoteLookups.delete(route.id);
+    if (route.name === 'checklist' && remoteLookups.get(route.id) !== 'loading') remoteLookups.delete(route.id);
     render();
   });
   window.addEventListener('storage', (e) => {
     if (e.key === store.KEY) store.reload();
   });
-  window.addEventListener('online', () => runSync({ quiet: true }));
+  window.addEventListener('online', () => void runSync({ quiet: true }));
   document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !e.target.closest('input, textarea')) {
+    const inField = e.target instanceof Element && e.target.closest('input, textarea');
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !inField) {
       e.preventDefault();
       doUndo();
     }
   });
   document.addEventListener('click', (e) => {
-    for (const d of document.querySelectorAll('details.menu[open]')) if (!d.contains(e.target)) d.open = false;
+    for (const d of document.querySelectorAll('details.menu[open]')) {
+      if (!(e.target instanceof Node && d.contains(e.target))) d.removeAttribute('open');
+    }
   });
-  importInput.addEventListener('change', importJson);
+  importInput.addEventListener('change', () => void importJson());
   render();
-  runSync({ quiet: true });
+  void runSync({ quiet: true });
 }
 
-function parseRoute() {
-  const m = location.hash.match(/^#\/c\/([\w-]+)$/);
-  return m ? { name: 'checklist', id: m[1] } : { name: 'overview' };
+function parseRoute(): Route {
+  const m = /^#\/c\/([\w-]+)$/.exec(location.hash);
+  return m?.[1] ? { name: 'checklist', id: m[1] } : { name: 'overview' };
 }
 
 // ---------- rendering ----------
 
-function render() {
+function render(): void {
   if (rendering) {
     renderQueued = true;
     return;
@@ -84,18 +103,19 @@ function render() {
     }
     const sameRoute = location.hash === renderedRoute;
     const focus = sameRoute ? saveFocus() : null;
-    const oldScroll = sameRoute ? app.querySelector('main')?.scrollTop : null;
+    const oldScroll = sameRoute ? app.querySelector('main')?.scrollTop : undefined;
 
     app.replaceChildren(...(route.name === 'checklist' ? checklistView(route.id) : overviewView()));
     renderedRoute = location.hash;
 
     const main = app.querySelector('main');
+    if (!main) throw new Error('Rendered page has no <main>');
     if (scrollToBottom || (!sameRoute && route.name === 'checklist')) main.scrollTop = main.scrollHeight;
-    else if (oldScroll != null) main.scrollTop = oldScroll;
+    else if (oldScroll !== undefined) main.scrollTop = oldScroll;
     scrollToBottom = false;
 
-    const toFocus = pendingFocus && app.querySelector(`[data-key="${pendingFocus}"]`);
-    if (toFocus) {
+    const toFocus = pendingFocus ? app.querySelector(`input[data-key="${pendingFocus}"]`) : null;
+    if (toFocus instanceof HTMLInputElement) {
       toFocus.focus();
       toFocus.select();
       pendingFocus = null;
@@ -111,73 +131,84 @@ function render() {
   }
 }
 
-function saveFocus() {
+interface SavedFocus { key: string; value: string; start: number | null; end: number | null }
+
+function saveFocus(): SavedFocus | null {
   const el = document.activeElement;
-  if (!el?.dataset?.key) return null;
-  return { key: el.dataset.key, value: el.value, start: el.selectionStart, end: el.selectionEnd };
+  if (!(el instanceof HTMLInputElement) || !el.dataset['key']) return null;
+  return { key: el.dataset['key'], value: el.value, start: el.selectionStart, end: el.selectionEnd };
 }
 
-function restoreFocus(f) {
-  const el = app.querySelector(`[data-key="${f.key}"]`);
-  if (!el) return;
+function restoreFocus(f: SavedFocus): void {
+  const el = app.querySelector(`input[data-key="${f.key}"]`);
+  if (!(el instanceof HTMLInputElement)) return;
   el.value = f.value;
   el.focus();
-  try {
-    el.setSelectionRange(f.start, f.end);
-  } catch {}
+  el.setSelectionRange(f.start, f.end);
 }
 
-function h(tag, props = {}, ...children) {
+type Handlers = { [K in keyof HTMLElementEventMap]?: (e: HTMLElementEventMap[K]) => void };
+interface Props {
+  on?: Handlers;
+  [attr: string]: string | boolean | null | undefined | Handlers;
+}
+type Child = Node | string | null | false | undefined;
+
+function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Props = {}, ...children: (Child | Child[])[]): HTMLElementTagNameMap[K] {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
-    if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
-    else if (k === 'class') el.className = v;
+    if (k === 'on') {
+      for (const [type, fn] of Object.entries(v as Handlers)) el.addEventListener(type, fn as EventListener);
+    } else if (k === 'class') el.className = String(v);
     else if (v === true) el.setAttribute(k, '');
-    else if (v !== false && v != null) el.setAttribute(k, v);
+    else if (typeof v === 'string') el.setAttribute(k, v);
   }
-  el.append(...children.flat().filter((c) => c != null && c !== false));
+  el.append(...children.flat().filter((c): c is Node | string => c != null && c !== false));
   return el;
 }
 
-function icon(name) {
+function icon(name: IconName): Node {
   const t = document.createElement('template');
   t.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
-  return t.content.firstChild;
+  return t.content.cloneNode(true);
 }
 
-function iconButton(name, label, onclick, extraClass = '') {
-  return h('button', { class: `icon-btn ${extraClass}`, title: label, 'aria-label': label, onclick }, icon(name));
+function iconButton(name: IconName, label: string, onclick: () => void, extraClass = ''): HTMLButtonElement {
+  return h('button', { class: `icon-btn ${extraClass}`, title: label, 'aria-label': label, on: { click: onclick } }, icon(name));
 }
 
-function undoButton() {
+function undoButton(): HTMLButtonElement {
   const b = iconButton('undo', 'Undo', doUndo);
   b.disabled = !canUndo();
   return b;
 }
 
-function syncButton() {
-  return iconButton('sync', syncStatus === 'error' ? 'Sync (last attempt failed)' : 'Sync', () => runSync(), `sync ${syncStatus}`);
+function syncButton(): HTMLButtonElement {
+  return iconButton('sync', syncStatus === 'error' ? 'Sync (last attempt failed)' : 'Sync', () => void runSync(), `sync ${syncStatus}`);
 }
 
-function menu(...entries) {
+function menu(...entries: HTMLButtonElement[]): HTMLDetailsElement {
   return h('details', { class: 'menu' },
     h('summary', { class: 'icon-btn', title: 'More', 'aria-label': 'More' }, icon('more')),
     h('div', { class: 'menu-panel' }, entries));
 }
 
-function menuItem(label, fn, cls = '') {
-  return h('button', {
+function menuItem(label: string, fn: () => void, cls = ''): HTMLButtonElement {
+  const b: HTMLButtonElement = h('button', {
     class: cls,
-    onclick: (e) => {
-      e.currentTarget.closest('details').open = false;
-      fn();
+    on: {
+      click: () => {
+        b.closest('details')?.removeAttribute('open');
+        fn();
+      },
     },
   }, label);
+  return b;
 }
 
 // ---------- overview ----------
 
-function overviewView() {
+function overviewView(): Node[] {
   const lists = store.listChecklists();
   return [
     h('header', { class: 'topbar' },
@@ -190,56 +221,52 @@ function overviewView() {
       )),
     h('main', { class: 'chats' },
       lists.length ? lists.map(chatRow) : h('p', { class: 'empty' }, 'No checklists yet. Tap + to start one.')),
-    h('button', { class: 'fab', title: 'New checklist', 'aria-label': 'New checklist', onclick: newChecklist }, icon('plus')),
+    h('button', { class: 'fab', title: 'New checklist', 'aria-label': 'New checklist', on: { click: newChecklist } }, icon('plus')),
   ];
 }
 
-function chatRow({ checklist, last, total, done, activity }) {
+function chatRow({ checklist, last, total, done, activity }: ChecklistSummary): HTMLAnchorElement {
   return h('a', { class: 'chat-row', href: `#/c/${checklist.id}` },
-    h('div', { class: 'avatar', 'aria-hidden': 'true' }, (checklist.name.trim()[0] || '?').toUpperCase()),
+    h('div', { class: 'avatar', 'aria-hidden': 'true' }, (checklist.name.trim()[0] ?? '?').toUpperCase()),
     h('div', { class: 'chat-body' },
       h('div', { class: 'chat-line' },
         h('span', { class: 'chat-name' }, checklist.name),
-        h('time', { datetime: new Date(activity).toISOString() }, relTime(activity))),
+        h('time', { datetime: toInstant(activity).toString() }, relTime(activity))),
       h('div', { class: 'chat-line' },
         h('span', { class: 'chat-preview' }, last ? last.label : 'No items yet'),
         total ? h('span', { class: `count${done === total ? ' complete' : ''}` }, `${done}/${total}`) : null)));
 }
 
-function relTime(ts) {
-  const d = new Date(ts);
-  const today = new Date();
-  if (d.toDateString() === today.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (today - d < 6 * 864e5) return d.toLocaleDateString([], { weekday: 'short' });
-  return d.toLocaleDateString();
-}
-
 // ---------- checklist ----------
 
-function checklistView(id) {
+function checklistView(id: string): Node[] {
   const c = store.getChecklist(id);
   if (!c) return missingView(id);
   const items = store.itemsFor(id);
+  const title: HTMLInputElement = h('input', {
+    class: 'title',
+    'data-key': 'title',
+    value: c.name,
+    'aria-label': 'Checklist name',
+    enterkeyhint: 'done',
+    on: {
+      keydown: (e) => {
+        if (e.key === 'Enter') title.blur();
+        if (e.key === 'Escape') {
+          title.value = c.name;
+          title.blur();
+        }
+      },
+      blur: () => rename(c, title.value),
+    },
+  });
+  const composer: HTMLInputElement = h('input', { 'data-key': 'composer', placeholder: 'Add an item', autocomplete: 'off', enterkeyhint: 'send', 'aria-label': 'New item' });
   return [
     h('header', { class: 'topbar' },
       h('a', { class: 'icon-btn', href: '#/', title: 'Back', 'aria-label': 'Back' }, icon('back')),
-      h('input', {
-        class: 'title',
-        'data-key': 'title',
-        value: c.name,
-        'aria-label': 'Checklist name',
-        enterkeyhint: 'done',
-        onkeydown: (e) => {
-          if (e.key === 'Enter') e.target.blur();
-          if (e.key === 'Escape') {
-            e.target.value = c.name;
-            e.target.blur();
-          }
-        },
-        onblur: (e) => rename(c, e.target.value),
-      }),
+      title,
       undoButton(),
-      iconButton('share', 'Share link', () => share(c)),
+      iconButton('share', 'Share link', () => void share(c)),
       iconButton('clone', 'Clone (all unchecked)', () => clone(c)),
       menu(
         menuItem('Export as text', () => exportText(c, items)),
@@ -247,59 +274,66 @@ function checklistView(id) {
       )),
     h('main', { class: 'items' },
       items.length ? items.map(itemView) : h('p', { class: 'empty' }, 'Add your first item below.')),
-    h('form', { class: 'composer', onsubmit: (e) => addItem(e, c) },
-      h('input', { name: 'label', 'data-key': 'composer', placeholder: 'Add an item', autocomplete: 'off', enterkeyhint: 'send', 'aria-label': 'New item' }),
+    h('form', { class: 'composer', on: { submit: (e) => addItem(e, c, composer) } },
+      composer,
       h('button', { type: 'submit', class: 'send', title: 'Add', 'aria-label': 'Add' }, icon('send'))),
   ];
 }
 
-function missingView(id) {
+const LOOKUP_TEXT: Record<Lookup, string> = {
+  loading: 'Fetching checklist…',
+  missing: "This checklist isn't on this device or on the server.",
+  unreachable: "This checklist isn't on this device, and the server couldn't be reached. Try again when you're online.",
+};
+
+function missingView(id: string): Node[] {
   const state = remoteLookups.get(id);
-  if (!state) lookupRemote(id);
+  if (!state) void lookupRemote(id);
   return [
     h('header', { class: 'topbar' },
       h('a', { class: 'icon-btn', href: '#/', title: 'Back', 'aria-label': 'Back' }, icon('back')),
       h('h1', {}, 'Checklist')),
-    h('main', { class: 'items' },
-      h('p', { class: 'empty' }, state === 'missing'
-        ? "This checklist isn't on this device and couldn't be fetched from the server."
-        : 'Fetching checklist…')),
+    h('main', { class: 'items' }, h('p', { class: 'empty' }, LOOKUP_TEXT[state ?? 'loading'])),
   ];
 }
 
-async function lookupRemote(id) {
+async function lookupRemote(id: string): Promise<void> {
   remoteLookups.set(id, 'loading');
-  let found = false;
   try {
-    found = await pull([id]);
-  } catch {}
-  if (found) remoteLookups.delete(id);
-  else remoteLookups.set(id, 'missing');
+    const found = await pull([id]);
+    if (found) remoteLookups.delete(id);
+    else remoteLookups.set(id, 'missing');
+  } catch (e) {
+    console.error(`Fetching checklist ${id} failed:`, e);
+    remoteLookups.set(id, 'unreachable');
+  }
   render();
 }
 
-function itemView(item) {
+function itemView(item: Item): HTMLElement {
   if (editingId === item.id) {
-    const finish = (save) => (e) => {
+    const input: HTMLInputElement = h('input', {
+      class: 'bubble edit',
+      'data-key': 'edit',
+      value: item.label,
+      'aria-label': 'Edit item',
+      enterkeyhint: 'done',
+      on: {
+        keydown: (e) => {
+          if (e.key === 'Enter') finish(true);
+          if (e.key === 'Escape') finish(false);
+        },
+        blur: () => finish(true),
+      },
+    });
+    const finish = (save: boolean): void => {
       if (rendering || editingId !== item.id) return;
       editingId = null;
-      const label = e.target.value.trim();
+      const label = input.value.trim();
       if (save && label && label !== item.label) dispatch({ type: 'editItem', id: item.id, label });
       else render();
     };
-    return h('div', { class: 'bubble-row' },
-      h('input', {
-        class: 'bubble edit',
-        'data-key': 'edit',
-        value: item.label,
-        'aria-label': 'Edit item',
-        enterkeyhint: 'done',
-        onkeydown: (e) => {
-          if (e.key === 'Enter') finish(true)(e);
-          if (e.key === 'Escape') finish(false)(e);
-        },
-        onblur: finish(true),
-      }));
+    return h('div', { class: 'bubble-row' }, input);
   }
 
   const checked = item.status === 'checked';
@@ -322,13 +356,13 @@ function itemView(item) {
 }
 
 // Tap toggles. On touch: swipe left deletes, long-press edits. (Mouse gets hover buttons.)
-function attachGestures(row, bubble, item) {
-  let start = null;
+function attachGestures(row: HTMLElement, bubble: HTMLElement, item: Item): void {
+  let start: { x: number; y: number } | null = null;
   let dx = 0;
-  let timer = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let suppressClick = false;
 
-  const reset = () => {
+  const reset = (): void => {
     clearTimeout(timer);
     start = null;
     bubble.style.transform = '';
@@ -387,23 +421,22 @@ function attachGestures(row, bubble, item) {
 
 // ---------- actions ----------
 
-function newChecklist() {
+function newChecklist(): void {
   const id = store.uuid();
   dispatch({ type: 'createChecklist', id, name: 'New checklist' });
   pendingFocus = 'title';
   location.hash = `#/c/${id}`;
 }
 
-function rename(c, value) {
+function rename(c: Checklist, value: string): void {
   if (rendering) return;
   const name = value.trim();
   if (name && name !== c.name) dispatch({ type: 'renameChecklist', id: c.id, name });
   else render(); // restore the old name if the field was emptied
 }
 
-function addItem(e, c) {
+function addItem(e: SubmitEvent, c: Checklist, input: HTMLInputElement): void {
   e.preventDefault();
-  const input = e.target.elements.label;
   const label = input.value.trim();
   if (!label) return;
   input.value = '';
@@ -411,54 +444,61 @@ function addItem(e, c) {
   dispatch({ type: 'addItem', id: store.uuid(), checklistId: c.id, label });
 }
 
-function startEdit(id) {
+function startEdit(id: string): void {
   editingId = id;
   pendingFocus = 'edit';
   render();
 }
 
-function deleteItem(id) {
+function deleteItem(id: string): void {
   dispatch({ type: 'deleteItem', id });
   toast('Item deleted', true);
 }
 
-function deleteChecklist(c) {
+function deleteChecklist(c: Checklist): void {
   dispatch({ type: 'deleteChecklist', id: c.id });
   toast(`Deleted “${c.name}”`, true);
 }
 
-function clone(c) {
+function clone(c: Checklist): void {
   const id = store.uuid();
   dispatch({ type: 'cloneChecklist', sourceId: c.id, id });
   location.hash = `#/c/${id}`;
   toast('Cloned with all items unchecked', true);
 }
 
-function doUndo() {
-  const action = undo();
-  toast(action ? `Undone: ${describe(action).toLowerCase()}` : 'Nothing to undo');
+function doUndo(): void {
+  const result = undo();
+  if (!result) {
+    toast('Nothing to undo');
+    return;
+  }
+  const what = describe(result.action).toLowerCase();
+  toast(result.local ? `Undone: ${what}` : `Undone: ${what} (synced on next sync)`);
 }
 
-async function share(c) {
+async function share(c: Checklist): Promise<void> {
   const url = new URL(`#/c/${c.id}`, location.href).href;
-  runSync({ quiet: true }); // make sure the server has it before someone opens the link
-  if (navigator.share) {
+  void runSync({ quiet: true }); // make sure the server has it before someone opens the link
+  if ('share' in navigator) {
     try {
       await navigator.share({ title: c.name, url });
       return;
     } catch (e) {
-      if (e.name === 'AbortError') return;
+      if (e instanceof DOMException && e.name === 'AbortError') return; // the user closed the share sheet
+      console.error('navigator.share failed, falling back to the clipboard:', e);
     }
   }
   try {
     await navigator.clipboard.writeText(url);
     toast('Link copied');
-  } catch {
+  } catch (e) {
+    console.error('Copying the link failed, showing it instead:', e);
     window.prompt('Copy this link', url);
   }
 }
 
-async function runSync({ quiet = false } = {}) {
+async function runSync({ quiet = false } = {}): Promise<void> {
   if (syncStatus === 'busy') return;
   syncStatus = 'busy';
   render();
@@ -467,51 +507,54 @@ async function runSync({ quiet = false } = {}) {
     syncStatus = 'idle';
     if (!quiet) toast('Synced');
   } catch (e) {
+    console.error('Sync failed:', e);
     syncStatus = 'error';
-    if (!quiet) toast(`Sync failed: ${e.message}`);
+    if (!quiet) toast(`Sync failed: ${message(e)}`);
   }
   render();
 }
 
 // ---------- export / import ----------
 
-function download(filename, text, type) {
+function download(filename: string, text: string, type: string): void {
   const a = h('a', { href: URL.createObjectURL(new Blob([text], { type })), download: filename });
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-function exportJson() {
-  const date = new Date().toISOString().slice(0, 10);
-  download(`checklists-${date}.json`, JSON.stringify(store.exportData(), null, 2), 'application/json');
+function exportJson(): void {
+  download(`checklists-${localDate()}.json`, JSON.stringify(store.exportData(), null, 2), 'application/json');
 }
 
-function exportText(c, items) {
+function exportText(c: Checklist, items: Item[]): void {
   const lines = items.map((i) => `- [${i.status === 'checked' ? 'x' : ' '}] ${i.label}`);
   const safeName = c.name.replace(/[^\w -]+/g, '').trim() || 'checklist';
   download(`${safeName}.md`, `# ${c.name}\n\n${lines.join('\n')}\n`, 'text/markdown');
 }
 
-async function importJson() {
-  const file = importInput.files[0];
+async function importJson(): Promise<void> {
+  const file = importInput.files?.[0];
   importInput.value = '';
   if (!file) return;
+  let records;
   try {
-    const data = JSON.parse(await file.text());
-    store.merge(data);
-    store.save();
-    toast('Imported');
+    records = parseRecords(JSON.parse(await file.text()));
   } catch (e) {
-    toast(`Import failed: ${e.message}`);
+    console.error(`Importing ${file.name} failed:`, e);
+    toast(`Import failed: ${message(e)}`);
+    return;
   }
+  store.merge(records);
+  store.save();
+  toast('Imported');
 }
 
 // ---------- toast ----------
 
-function toast(message, withUndo = false) {
+function toast(text: string, withUndo = false): void {
   toastEl.replaceChildren(
-    h('span', {}, message),
-    withUndo ? h('button', { onclick: doUndo }, 'Undo') : null,
+    h('span', {}, text),
+    withUndo ? h('button', { on: { click: doUndo } }, 'Undo') : '',
   );
   toastEl.hidden = false;
   clearTimeout(toastTimer);
