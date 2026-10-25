@@ -7,6 +7,6 @@
     "types": ["node"],
     "tsBuildInfoFile": "node_modules/.cache/tsc/test.tsbuildinfo"
   },
-  "include": ["tests", "src"],
+  "include": ["tests", "src", "server"],
   "exclude": ["src/sw"]
 }

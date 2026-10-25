@@ -6,8 +6,8 @@
     "build": "tsc -b",
     "watch": "tsc -b --watch",
     "test": "tsc -b && node --test 'tests/*.test.ts'",
-    "typecheck:server": "uvx mypy --strict server/server.py",
-    "dev": "tsc -b && (tsc -b --watch --preserveWatchOutput & python3 server/server.py)"
+    "dev": "tsc -b && (tsc -b --watch --preserveWatchOutput & node --watch server/server.ts)",
+    "start": "node server/server.ts"
   },
   "devDependencies": {
     "@types/node": "26.6.5",

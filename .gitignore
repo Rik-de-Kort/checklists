@@ -1,5 +1,4 @@
 *.sqlite
-__pycache__/
 node_modules/
 # Compiled from src/ by `npm run build`
 public/js/
