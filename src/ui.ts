@@ -5,9 +5,10 @@ import { canUndo, describe, dispatch, undo } from "./actions.ts";
 import { pull, sync } from "./sync.ts";
 import { message } from "./errors.ts";
 import { localDate, relTime, toInstant } from "./time.ts";
-import { parseRecords } from "./validate.ts";
+import { CHECKLIST_ID, parseRecords } from "./validate.ts";
 import type { ChecklistSummary } from "./store.ts";
 import type { Checklist, Item } from "./types.ts";
+import { wordId } from "./words.ts";
 
 const SWIPE_THRESHOLD = 80;
 const LONG_PRESS_MS = 500;
@@ -101,8 +102,11 @@ export function init(): void {
 }
 
 function parseRoute(): Route {
-  const m = /^#\/c\/([\w-]+)$/.exec(location.hash);
-  return m?.[1] ? { name: "checklist", id: m[1] } : { name: "overview" };
+  // Lowercase: phones like to capitalize the first letter of a hand-typed link.
+  const id = /^#\/c\/(.+)$/.exec(location.hash)?.[1]?.toLowerCase();
+  return id && CHECKLIST_ID.test(id)
+    ? { name: "checklist", id }
+    : { name: "overview" };
 }
 
 // ---------- rendering ----------
@@ -597,7 +601,7 @@ function attachGestures(
 // ---------- actions ----------
 
 function newChecklist(): void {
-  const id = store.uuid();
+  const id = wordId();
   dispatch({ type: "createChecklist", id, name: "New checklist" });
   pendingFocus = "title";
   location.hash = `#/c/${id}`;
@@ -637,7 +641,7 @@ function deleteChecklist(c: Checklist): void {
 }
 
 function clone(c: Checklist): void {
-  const id = store.uuid();
+  const id = wordId();
   dispatch({ type: "cloneChecklist", sourceId: c.id, id });
   location.hash = `#/c/${id}`;
   toast("Cloned with all items unchecked", true);
@@ -656,7 +660,8 @@ function doUndo(): void {
 }
 
 async function share(c: Checklist): Promise<void> {
-  const url = new URL(`#/c/${c.id}`, location.href).href;
+  // The server redirects /<id> to /#/c/<id>; it's much easier to type on a phone.
+  const url = new URL(c.id, location.href).href;
   void runSync({ quiet: true }); // make sure the server has it before someone opens the link
   if ("share" in navigator) {
     try {

@@ -60,7 +60,7 @@ Deno.test("merge keeps the newer copy of each record and ignores orphans", () =>
   );
   store.merge({
     checklists: [],
-    items: [{ ...local, id: "orphan", checklist_id: "nowhere" }],
+    items: [{ ...local, id: "orphan", checklist_id: "not-in-this-list-here" }],
   });
   assert.equal(store.getItem("orphan"), undefined);
 });
@@ -71,7 +71,7 @@ Deno.test("incoming records are validated", () => {
       parseRecords({
         items: [{
           id: "a",
-          checklist_id: "c",
+          checklist_id: "tiger-lamp-ocean-plum-hat",
           label: "x",
           status: "maybe",
           created_at: 1,
@@ -84,7 +84,7 @@ Deno.test("incoming records are validated", () => {
     () =>
       parseRecords({
         checklists: [{
-          id: "c",
+          id: "tiger-lamp-ocean-plum-hat",
           name: "x",
           created_at: "2026-01-01",
           updated_at: 1,
@@ -92,6 +92,18 @@ Deno.test("incoming records are validated", () => {
       }),
     /checklist\.created_at/,
   );
+  for (
+    const id of ["c1", "Tiger-lamp-ocean-plum-hat", "tiger-lamp-ocean-plum"]
+  ) {
+    assert.throws(
+      () =>
+        parseRecords({
+          checklists: [{ id, name: "x", created_at: 1, updated_at: 1 }],
+        }),
+      /checklist\.id/,
+      id,
+    );
+  }
   assert.throws(() => parseRecords({ checklists: "nope" }), /checklists/);
   assert.deepEqual(parseRecords({}), { checklists: [], items: [] });
 });

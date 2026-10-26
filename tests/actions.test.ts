@@ -3,6 +3,7 @@ import * as store from "../src/store.ts";
 import { canUndo, dispatch, undo } from "../src/actions.ts";
 import { now } from "../src/time.ts";
 import type { Item } from "../src/types.ts";
+import { wordId } from "../src/words.ts";
 import { fresh, item, seed } from "./helpers.ts";
 
 /** Pretend everything so far has been pushed to the server. */
@@ -118,7 +119,7 @@ Deno.test("clone resets every item, and undoing it removes the copy locally even
   const { checklistId, itemIds: [, eggs] } = seed(["milk", "eggs", "bread"]);
   assert.ok(eggs);
   dispatch({ type: "toggleItem", id: eggs });
-  const copy = store.uuid();
+  const copy = wordId();
   dispatch({ type: "cloneChecklist", sourceId: checklistId, id: copy });
   const copied = store.itemsFor(copy);
   assert.deepEqual(copied.map((i) => i.label), ["milk", "eggs", "bread"]);

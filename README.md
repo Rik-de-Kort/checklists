@@ -20,7 +20,8 @@ All configuration is in `deno.json`. The service worker has its own
 the rest of `src/` is checked against.
 
 The server serves `public/` and the sync API. The app also works from any static
-host; sync then just shows an error state.
+host; sync then just shows an error state, and share links (`/<id>`, which the
+server redirects to `#/c/<id>`) don't resolve.
 
 The app needs the Temporal API (current Chrome, Edge and Firefox) and refuses to
 start without it. Service workers, `navigator.share` and the clipboard need a
@@ -45,7 +46,11 @@ volume daily and keeps 5 days.
   sessionStorage, last 100). Undoing a change that hasn't synced yet restores
   the records exactly; undoing a synced change writes a new change (fresh
   `updated_at`, tombstones) so it propagates.
-- `src/ui.ts`: hash routes `#/` (overview) and `#/c/<uuid>` (checklist).
+- `src/ui.ts`: hash routes `#/` (overview) and `#/c/<id>` (checklist). Share
+  links are `/<id>`, which the server redirects to `#/c/<id>`.
+- `src/words.ts`: checklist IDs are five random words
+  (`tiger-lamp-ocean-plum-hat`, about 52 bits) so links are easy to type on a
+  phone. Validation rejects any other checklist ID shape. Item IDs are UUIDs.
 - `src/time.ts`: Temporal helpers. Storage and sync use UTC epoch ms; local time
   is display-only.
 - `src/errors.ts`: uncaught errors show a red banner (phones have no visible
@@ -56,5 +61,4 @@ volume daily and keeps 5 days.
   `src/validate.ts`.
 - Deleting a checklist only removes it from this device; the server copy stays,
   and opening its link again pulls it back.
-- No accounts or auth: a checklist's UUID in the share link is the only key to
-  it.
+- No accounts or auth: a checklist's ID in the share link is the only key to it.

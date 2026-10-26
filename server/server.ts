@@ -4,7 +4,7 @@ import { extname, join, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { parseArgs } from "node:util";
 import type { Records } from "../src/types.ts";
-import { parseRecords } from "../src/validate.ts";
+import { CHECKLIST_ID, parseRecords } from "../src/validate.ts";
 
 const HERE = import.meta.dirname;
 if (!HERE) {
@@ -178,6 +178,14 @@ async function serveStatic(req: Request, publicDir: string): Promise<Response> {
     info = await statOrNull(file);
   }
   if (!info?.isFile) {
+    // Share links are /<checklist id>, easier to type than the app's own #/c/<id> route.
+    const shareId = pathname.slice(1).toLowerCase();
+    if (CHECKLIST_ID.test(shareId)) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `./#/c/${shareId}` },
+      });
+    }
     return new Response("not found", {
       status: 404,
       headers: { "Content-Type": "text/plain" },

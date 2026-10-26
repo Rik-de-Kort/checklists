@@ -1,6 +1,7 @@
 // Test setup: in-memory Web Storage and fresh module state for each test.
 import * as store from "../src/store.ts";
 import * as actions from "../src/actions.ts";
+import { wordId } from "../src/words.ts";
 
 export class MemoryStorage {
   #data = new Map<string, string>();
@@ -48,7 +49,7 @@ export function fresh(): { local: MemoryStorage; session: MemoryStorage } {
 export function seed(
   labels: string[],
 ): { checklistId: string; itemIds: string[] } {
-  const checklistId = store.uuid();
+  const checklistId = wordId();
   actions.dispatch({
     type: "createChecklist",
     id: checklistId,
