@@ -1,10 +1,17 @@
 // Local data store: the whole database is one JSON blob in localStorage.
-import { observe } from './time.ts';
-import { message } from './errors.ts';
-import { parseDb } from './validate.ts';
-import type { Checklist, Db, EpochMs, Item, Records, Snapshot } from './types.ts';
+import { observe } from "./time.ts";
+import { message } from "./errors.ts";
+import { parseDb } from "./validate.ts";
+import type {
+  Checklist,
+  Db,
+  EpochMs,
+  Item,
+  Records,
+  Snapshot,
+} from "./types.ts";
 
-export const KEY = 'checklist-db';
+export const KEY = "checklist-db";
 export const CORRUPT_KEY = `${KEY}-corrupt`;
 
 export interface ChecklistSummary {
@@ -31,13 +38,20 @@ function load(): Db {
   try {
     return parseDb(JSON.parse(raw));
   } catch (e) {
-    if (localStorage.getItem(CORRUPT_KEY) === null) localStorage.setItem(CORRUPT_KEY, raw);
-    throw new Error(`Stored checklists are unreadable (${message(e)}). A copy was kept in localStorage["${CORRUPT_KEY}"].`, { cause: e });
+    if (localStorage.getItem(CORRUPT_KEY) === null) {
+      localStorage.setItem(CORRUPT_KEY, raw);
+    }
+    throw new Error(
+      `Stored checklists are unreadable (${
+        message(e)
+      }). A copy was kept in localStorage["${CORRUPT_KEY}"].`,
+      { cause: e },
+    );
   }
 }
 
 function data(): Db {
-  if (!db) throw new Error('store.init() has not been called');
+  if (!db) throw new Error("store.init() has not been called");
   return db;
 }
 
@@ -47,7 +61,9 @@ function notify(): void {
 
 export function init(): void {
   db = load();
-  for (const rec of [...Object.values(db.checklists), ...Object.values(db.items)]) observe(rec.updated_at);
+  for (
+    const rec of [...Object.values(db.checklists), ...Object.values(db.items)]
+  ) observe(rec.updated_at);
 }
 
 export function save(): void {
@@ -71,25 +87,32 @@ export function uuid(): string {
   const b = crypto.getRandomValues(new Uint8Array(16));
   b[6] = (b[6]! & 0x0f) | 0x40;
   b[8] = (b[8]! & 0x3f) | 0x80;
-  const hex = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  const hex = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${
+    hex.slice(16, 20)
+  }-${hex.slice(20)}`;
 }
 
-export const getChecklist = (id: string): Checklist | undefined => data().checklists[id];
+export const getChecklist = (id: string): Checklist | undefined =>
+  data().checklists[id];
 export const getItem = (id: string): Item | undefined => data().items[id];
 
 // ---------- writes (tracked while recording) ----------
 
 /** Runs fn and returns the state of every record it wrote, before and after. */
 export function record(fn: () => void): { before: Snapshot; after: Snapshot } {
-  if (recording) throw new Error('store.record() calls cannot be nested');
+  if (recording) throw new Error("store.record() calls cannot be nested");
   recording = { checklists: {}, items: {} };
   try {
     fn();
     const before = recording;
     const after: Snapshot = { checklists: {}, items: {} };
-    for (const id of Object.keys(before.checklists)) after.checklists[id] = getChecklist(id) ?? null;
-    for (const id of Object.keys(before.items)) after.items[id] = getItem(id) ?? null;
+    for (const id of Object.keys(before.checklists)) {
+      after.checklists[id] = getChecklist(id) ?? null;
+    }
+    for (const id of Object.keys(before.items)) {
+      after.items[id] = getItem(id) ?? null;
+    }
     return { before, after };
   } finally {
     recording = null;
@@ -97,11 +120,15 @@ export function record(fn: () => void): { before: Snapshot; after: Snapshot } {
 }
 
 function trackChecklist(id: string): void {
-  if (recording && !(id in recording.checklists)) recording.checklists[id] = getChecklist(id) ?? null;
+  if (recording && !(id in recording.checklists)) {
+    recording.checklists[id] = getChecklist(id) ?? null;
+  }
 }
 
 function trackItem(id: string): void {
-  if (recording && !(id in recording.items)) recording.items[id] = getItem(id) ?? null;
+  if (recording && !(id in recording.items)) {
+    recording.items[id] = getItem(id) ?? null;
+  }
 }
 
 export function putChecklist(c: Checklist): void {
@@ -123,7 +150,9 @@ export function deleteItemRecord(id: string): void {
 export function removeChecklistLocal(id: string): void {
   trackChecklist(id);
   delete data().checklists[id];
-  for (const i of Object.values(data().items)) if (i.checklist_id === id) deleteItemRecord(i.id);
+  for (const i of Object.values(data().items)) {
+    if (i.checklist_id === id) deleteItemRecord(i.id);
+  }
 }
 
 // ---------- queries ----------
@@ -136,18 +165,25 @@ export function itemsFor(checklistId: string): Item[] {
 
 // Checklists ordered by most recent item, falling back to the checklist's own creation time.
 export function listChecklists(): ChecklistSummary[] {
-  const stats: Record<string, { last: Item | null; total: number; done: number }> = {};
+  const stats: Record<
+    string,
+    { last: Item | null; total: number; done: number }
+  > = {};
   for (const i of Object.values(data().items)) {
     if (i.deleted) continue;
     const s = (stats[i.checklist_id] ??= { last: null, total: 0, done: 0 });
     s.total++;
-    if (i.status === 'checked') s.done++;
+    if (i.status === "checked") s.done++;
     if (!s.last || i.created_at > s.last.created_at) s.last = i;
   }
   return Object.values(data().checklists)
     .map((checklist) => {
       const s = stats[checklist.id] ?? { last: null, total: 0, done: 0 };
-      return { checklist, ...s, activity: s.last ? s.last.created_at : checklist.created_at };
+      return {
+        checklist,
+        ...s,
+        activity: s.last ? s.last.created_at : checklist.created_at,
+      };
     })
     .sort((a, b) => b.activity - a.activity);
 }
@@ -155,21 +191,31 @@ export function listChecklists(): ChecklistSummary[] {
 // ---------- sync / export ----------
 
 export function exportData(): Records {
-  return { checklists: Object.values(data().checklists), items: Object.values(data().items) };
+  return {
+    checklists: Object.values(data().checklists),
+    items: Object.values(data().items),
+  };
 }
 
 // Last-writer-wins merge of remote/imported records. Items are only accepted for
 // checklists present locally (after merging the incoming checklists).
 export function merge(incoming: Records): boolean {
   let changed = false;
-  for (const c of incoming.checklists) changed = mergeRecord(data().checklists, c) || changed;
+  for (const c of incoming.checklists) {
+    changed = mergeRecord(data().checklists, c) || changed;
+  }
   for (const i of incoming.items) {
-    if (data().checklists[i.checklist_id]) changed = mergeRecord(data().items, i) || changed;
+    if (data().checklists[i.checklist_id]) {
+      changed = mergeRecord(data().items, i) || changed;
+    }
   }
   return changed;
 }
 
-function mergeRecord<T extends Checklist | Item>(table: Record<string, T>, rec: T): boolean {
+function mergeRecord<T extends Checklist | Item>(
+  table: Record<string, T>,
+  rec: T,
+): boolean {
   observe(rec.updated_at);
   const cur = table[rec.id];
   if (cur && cur.updated_at >= rec.updated_at) return false;

@@ -1,7 +1,7 @@
 /** UTC milliseconds since the Unix epoch. Converted to local time only for display (see time.ts). */
-export type EpochMs = number & { readonly __brand: 'EpochMs' };
+export type EpochMs = number & { readonly __brand: "EpochMs" };
 
-export type Status = 'checked' | 'unchecked';
+export type Status = "checked" | "unchecked";
 
 export interface Checklist {
   readonly id: string;

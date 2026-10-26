@@ -2,27 +2,34 @@
 // dispatch() records every record an action writes, before and after. Undoing a change that
 // hasn't been synced yet puts those records back exactly as they were; undoing a synced
 // change writes a new change (fresh updated_at, tombstones) so it propagates like any other.
-import * as store from './store.ts';
-import { now } from './time.ts';
-import type { Checklist, EpochMs, Item, Snapshot } from './types.ts';
+import * as store from "./store.ts";
+import { now } from "./time.ts";
+import type { Checklist, EpochMs, Item, Snapshot } from "./types.ts";
 
-const KEY = 'checklist-undo';
+const KEY = "checklist-undo";
 const MAX = 100;
 
 export type ActionInput =
-  | { type: 'createChecklist'; id: string; name: string }
-  | { type: 'renameChecklist'; id: string; name: string }
-  | { type: 'deleteChecklist'; id: string }
-  | { type: 'cloneChecklist'; sourceId: string; id: string }
-  | { type: 'addItem'; id: string; checklistId: string; label: string }
-  | { type: 'editItem'; id: string; label: string }
-  | { type: 'toggleItem'; id: string }
-  | { type: 'deleteItem'; id: string };
+  | { type: "createChecklist"; id: string; name: string }
+  | { type: "renameChecklist"; id: string; name: string }
+  | { type: "deleteChecklist"; id: string }
+  | { type: "cloneChecklist"; sourceId: string; id: string }
+  | { type: "addItem"; id: string; checklistId: string; label: string }
+  | { type: "editItem"; id: string; label: string }
+  | { type: "toggleItem"; id: string }
+  | { type: "deleteItem"; id: string };
 
-export type Action = ActionInput & { at: EpochMs; before: Snapshot; after: Snapshot };
+export type Action = ActionInput & {
+  at: EpochMs;
+  before: Snapshot;
+  after: Snapshot;
+};
 
 type Handlers = {
-  [T in ActionInput['type']]: { label: string; do(a: Extract<ActionInput, { type: T }>): void };
+  [T in ActionInput["type"]]: {
+    label: string;
+    do(a: Extract<ActionInput, { type: T }>): void;
+  };
 };
 
 let stack: Action[] = [];
@@ -42,10 +49,10 @@ function loadStack(): Action[] {
 }
 
 function isAction(x: unknown): x is Action {
-  return typeof x === 'object' && x !== null
-    && 'type' in x && typeof x.type === 'string' && x.type in handlers
-    && 'at' in x && typeof x.at === 'number'
-    && 'before' in x && 'after' in x;
+  return typeof x === "object" && x !== null &&
+    "type" in x && typeof x.type === "string" && x.type in handlers &&
+    "at" in x && typeof x.at === "number" &&
+    "before" in x && "after" in x;
 }
 
 function persist(): void {
@@ -61,63 +68,102 @@ function changed<T extends Checklist | Item>(rec: T, fields: Partial<T>): T {
   return { ...rec, ...fields, updated_at: now() };
 }
 
-function newItem(checklistId: string, label: string, id: string = store.uuid()): Item {
+function newItem(
+  checklistId: string,
+  label: string,
+  id: string = store.uuid(),
+): Item {
   const t = now();
-  return { id, checklist_id: checklistId, label, status: 'unchecked', created_at: t, updated_at: t, deleted: false };
+  return {
+    id,
+    checklist_id: checklistId,
+    label,
+    status: "unchecked",
+    created_at: t,
+    updated_at: t,
+    deleted: false,
+  };
 }
 
 const handlers: Handlers = {
   createChecklist: {
-    label: 'Checklist created',
+    label: "Checklist created",
     do(a) {
       const t = now();
-      store.putChecklist({ id: a.id, name: a.name, created_at: t, updated_at: t });
+      store.putChecklist({
+        id: a.id,
+        name: a.name,
+        created_at: t,
+        updated_at: t,
+      });
     },
   },
   renameChecklist: {
-    label: 'Checklist renamed',
+    label: "Checklist renamed",
     do(a) {
-      store.putChecklist(changed(found(store.getChecklist(a.id), `Checklist ${a.id}`), { name: a.name }));
+      store.putChecklist(
+        changed(found(store.getChecklist(a.id), `Checklist ${a.id}`), {
+          name: a.name,
+        }),
+      );
     },
   },
   deleteChecklist: {
-    label: 'Checklist deleted',
+    label: "Checklist deleted",
     do(a) {
       store.removeChecklistLocal(a.id);
     },
   },
   cloneChecklist: {
-    label: 'Checklist cloned',
+    label: "Checklist cloned",
     do(a) {
-      const src = found(store.getChecklist(a.sourceId), `Checklist ${a.sourceId}`);
+      const src = found(
+        store.getChecklist(a.sourceId),
+        `Checklist ${a.sourceId}`,
+      );
       const t = now();
-      store.putChecklist({ id: a.id, name: `${src.name} (copy)`, created_at: t, updated_at: t });
-      for (const i of store.itemsFor(a.sourceId)) store.putItem(newItem(a.id, i.label));
+      store.putChecklist({
+        id: a.id,
+        name: `${src.name} (copy)`,
+        created_at: t,
+        updated_at: t,
+      });
+      for (const i of store.itemsFor(a.sourceId)) {
+        store.putItem(newItem(a.id, i.label));
+      }
     },
   },
   addItem: {
-    label: 'Item added',
+    label: "Item added",
     do(a) {
       store.putItem(newItem(a.checklistId, a.label, a.id));
     },
   },
   editItem: {
-    label: 'Item edited',
+    label: "Item edited",
     do(a) {
-      store.putItem(changed(found(store.getItem(a.id), `Item ${a.id}`), { label: a.label }));
+      store.putItem(
+        changed(found(store.getItem(a.id), `Item ${a.id}`), { label: a.label }),
+      );
     },
   },
   toggleItem: {
-    label: 'Item toggled',
+    label: "Item toggled",
     do(a) {
       const i = found(store.getItem(a.id), `Item ${a.id}`);
-      store.putItem(changed(i, { status: i.status === 'checked' ? 'unchecked' : 'checked' }));
+      store.putItem(
+        changed(i, {
+          status: i.status === "checked" ? "unchecked" : "checked",
+        }),
+      );
     },
   },
   deleteItem: {
-    label: 'Item deleted',
+    label: "Item deleted",
     do(a) {
-      store.putItem(changed(found(store.getItem(a.id), `Item ${a.id}`), { deleted: true }));
+      store.putItem(
+        changed(found(store.getItem(a.id), `Item ${a.id}`), { deleted: true }),
+      );
     },
   },
 };
@@ -165,17 +211,28 @@ export function undo(): { action: Action; local: boolean } | null {
   return { action, local };
 }
 
-function same(cur: Checklist | Item | null, after: Checklist | Item | null): boolean {
-  return cur === null || after === null ? cur === after : cur.updated_at === after.updated_at;
+function same(
+  cur: Checklist | Item | null,
+  after: Checklist | Item | null,
+): boolean {
+  return cur === null || after === null
+    ? cur === after
+    : cur.updated_at === after.updated_at;
 }
 
 // Put back the fields the action changed, leaving fields changed elsewhere (e.g. by a sync) alone.
-function restoreFields<T extends Checklist | Item>(cur: T, prev: T, after: T | null): T {
+function restoreFields<T extends Checklist | Item>(
+  cur: T,
+  prev: T,
+  after: T | null,
+): T {
   const out: Record<string, unknown> = { ...cur };
   for (const k of Object.keys(prev) as (keyof T & string)[]) {
-    if (k !== 'updated_at' && (after === null || prev[k] !== after[k])) out[k] = prev[k];
+    if (k !== "updated_at" && (after === null || prev[k] !== after[k])) {
+      out[k] = prev[k];
+    }
   }
-  out['updated_at'] = now();
+  out["updated_at"] = now();
   return out as unknown as T;
 }
 

@@ -3,7 +3,7 @@
   "tasks": {
     "build": "deno bundle --platform browser -o public/js/app.js src/app.ts && deno bundle --platform browser -o public/sw.js src/sw/sw.ts",
     "dev": "deno bundle --platform browser -o public/js/app.js src/app.ts --watch & deno bundle --platform browser -o public/sw.js src/sw/sw.ts --watch & deno run --watch --allow-net --allow-read --allow-write server/server.ts",
-    "test": "deno check src server tests && deno task build && deno test --allow-net --allow-read tests",
+    "test": "deno fmt --check && deno lint && deno check src server tests && deno task build && deno test --allow-net --allow-read tests",
     "start": "deno run --allow-net --allow-read --allow-write server/server.ts"
   },
   "compilerOptions": {

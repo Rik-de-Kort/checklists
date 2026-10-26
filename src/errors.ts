@@ -11,20 +11,22 @@ export function message(err: unknown): string {
 export function showError(err: unknown): void {
   count++;
   if (!banner) {
-    banner = document.createElement('div');
-    banner.className = 'error-banner';
-    banner.setAttribute('role', 'alert');
+    banner = document.createElement("div");
+    banner.className = "error-banner";
+    banner.setAttribute("role", "alert");
     document.body.prepend(banner);
   }
-  const text = document.createElement('span');
-  text.textContent = `Something went wrong: ${message(err)}${count > 1 ? ` (+${count - 1} more, see console)` : ''}`;
-  const reload = document.createElement('button');
-  reload.textContent = 'Reload';
-  reload.addEventListener('click', () => location.reload());
+  const text = document.createElement("span");
+  text.textContent = `Something went wrong: ${message(err)}${
+    count > 1 ? ` (+${count - 1} more, see console)` : ""
+  }`;
+  const reload = document.createElement("button");
+  reload.textContent = "Reload";
+  reload.addEventListener("click", () => location.reload());
   banner.replaceChildren(text, reload);
 }
 
 export function installErrorBanner(): void {
-  window.addEventListener('error', (e) => showError(e.error ?? e.message));
-  window.addEventListener('unhandledrejection', (e) => showError(e.reason));
+  globalThis.addEventListener("error", (e) => showError(e.error ?? e.message));
+  globalThis.addEventListener("unhandledrejection", (e) => showError(e.reason));
 }
