@@ -1,8 +1,5 @@
 // Tiny sync server: serves the PWA from ../public and stores checklists in SQLite.
-// Node runs this file directly (type stripping); no build step and no dependencies.
-import { createReadStream, type Stats } from 'node:fs';
-import { stat } from 'node:fs/promises';
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+// Deno runs this file directly; no build step and no dependencies beyond Deno's built-in node: modules.
 import { extname, join, resolve, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { parseArgs } from 'node:util';
@@ -10,7 +7,9 @@ import type { Records } from '../src/types.ts';
 import { parseRecords } from '../src/validate.ts';
 
 const HERE = import.meta.dirname;
+if (!HERE) throw new Error(`server.ts must run from a local file, not ${import.meta.url}`);
 const PUBLIC = resolve(HERE, '..', 'public');
+const DEFAULT_DB = join(HERE, 'data.sqlite');
 const MAX_BODY = 10 * 1024 * 1024;
 const MAX_IDS = 1000;
 
@@ -112,17 +111,17 @@ function pull(db: DatabaseSync, body: Json): Json {
 
 const ROUTES: Record<string, (db: DatabaseSync, body: Json) => Json> = { '/api/push': push, '/api/pull': pull };
 
-async function readJson(req: IncomingMessage): Promise<Json> {
-  const declared = Number(req.headers['content-length'] ?? 0);
+async function readJson(req: Request): Promise<Json> {
+  const declared = Number(req.headers.get('content-length') ?? 0);
   if (declared > MAX_BODY) throw new BadRequest('body too large');
-  const chunks: Buffer[] = [];
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
   let size = 0;
-  for await (const chunk of req as AsyncIterable<Buffer>) {
+  for await (const chunk of req.body ?? []) {
     size += chunk.length;
     if (size > MAX_BODY) throw new BadRequest('body too large');
     chunks.push(chunk);
   }
-  const text = Buffer.concat(chunks).toString('utf8') || '{}';
+  const text = (await new Blob(chunks).text()) || '{}';
   let body: unknown;
   try {
     body = JSON.parse(text);
@@ -133,71 +132,56 @@ async function readJson(req: IncomingMessage): Promise<Json> {
   return body as Json;
 }
 
-function sendJson(res: ServerResponse, status: number, data: Json): void {
-  const payload = JSON.stringify(data);
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) });
-  res.end(payload);
-}
-
 /** File info, or null if there's nothing there. Other errors (permissions, I/O) propagate. */
-async function statOrNull(file: string): Promise<Stats | null> {
+async function statOrNull(file: string): Promise<Deno.FileInfo | null> {
   try {
-    return await stat(file);
+    return await Deno.stat(file);
   } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') return null;
+    if (e instanceof Deno.errors.NotFound || e instanceof Deno.errors.NotADirectory) return null;
     throw e;
   }
 }
 
-async function serveStatic(req: IncomingMessage, res: ServerResponse, publicDir: string): Promise<void> {
+async function serveStatic(req: Request, publicDir: string): Promise<Response> {
   let pathname: string;
   try {
-    pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
+    pathname = decodeURIComponent(new URL(req.url).pathname);
   } catch (e) {
     throw new BadRequest((e as Error).message);
   }
   let file = resolve(join(publicDir, pathname));
-  if (file !== publicDir && !file.startsWith(publicDir + sep)) {
-    res.writeHead(404).end();
-    return;
-  }
+  if (file !== publicDir && !file.startsWith(publicDir + sep)) return new Response(null, { status: 404 });
   let info = await statOrNull(file);
-  if (info?.isDirectory()) {
+  if (info?.isDirectory) {
     file = join(file, 'index.html');
     info = await statOrNull(file);
   }
-  if (!info?.isFile()) {
-    res.writeHead(404, { 'Content-Type': 'text/plain' }).end('not found');
-    return;
-  }
-  res.writeHead(200, {
-    'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream',
-    'Content-Length': info.size,
-  });
-  if (req.method === 'HEAD') res.end();
-  else createReadStream(file).pipe(res);
+  if (!info?.isFile) return new Response('not found', { status: 404, headers: { 'Content-Type': 'text/plain' } });
+  const headers = { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream', 'Content-Length': String(info.size) };
+  if (req.method === 'HEAD') return new Response(null, { headers });
+  return new Response((await Deno.open(file)).readable, { headers });
 }
 
-async function handle(req: IncomingMessage, res: ServerResponse, db: DatabaseSync, publicDir: string): Promise<void> {
-  const path = new URL(req.url ?? '/', 'http://x').pathname;
+async function handle(req: Request, db: DatabaseSync, publicDir: string): Promise<Response> {
+  const path = new URL(req.url).pathname;
   if (req.method === 'POST') {
     const route = ROUTES[path];
-    if (!route) return sendJson(res, 404, { error: 'not found' });
-    return sendJson(res, 200, route(db, await readJson(req)));
+    if (!route) return Response.json({ error: 'not found' }, { status: 404 });
+    return Response.json(route(db, await readJson(req)));
   }
-  if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res, publicDir);
-  res.writeHead(405, { Allow: 'GET, HEAD, POST' }).end();
+  if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, publicDir);
+  return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD, POST' } });
 }
 
-export function makeServer(db: DatabaseSync, publicDir: string = PUBLIC): Server {
-  return createServer((req, res) => {
-    handle(req, res, db, publicDir).catch((e: unknown) => {
-      if (e instanceof BadRequest) return sendJson(res, 400, { error: e.message });
+export function serve(db: DatabaseSync, options: Deno.ServeTcpOptions, publicDir: string = PUBLIC): Deno.HttpServer<Deno.NetAddr> {
+  return Deno.serve(options, async (req) => {
+    try {
+      return await handle(req, db, publicDir);
+    } catch (e) {
+      if (e instanceof BadRequest) return Response.json({ error: e.message }, { status: 400 });
       console.error(`${req.method} ${req.url} failed:`, e);
-      if (res.headersSent) res.destroy();
-      else sendJson(res, 500, { error: 'internal error' });
-    });
+      return Response.json({ error: 'internal error' }, { status: 500 });
+    }
   });
 }
 
@@ -206,13 +190,15 @@ function main(): void {
     options: {
       host: { type: 'string', default: '127.0.0.1' },
       port: { type: 'string', default: '8000' },
-      db: { type: 'string', default: join(HERE, 'data.sqlite') },
+      db: { type: 'string', default: DEFAULT_DB },
     },
   });
   const port = Number(values.port);
   if (!Number.isInteger(port)) throw new Error(`--port must be a number, got ${values.port}`);
-  makeServer(openDb(values.db)).listen(port, values.host, () => {
-    console.log(`Serving http://${values.host}:${port} (db: ${values.db})`);
+  serve(openDb(values.db), {
+    hostname: values.host,
+    port,
+    onListen: () => console.log(`Serving http://${values.host}:${port} (db: ${values.db})`),
   });
 }
 

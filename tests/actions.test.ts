@@ -1,4 +1,3 @@
-import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as store from '../src/store.ts';
 import { dispatch, undo, canUndo } from '../src/actions.ts';
@@ -11,7 +10,7 @@ function markSynced(): void {
   store.setSyncedThrough(now());
 }
 
-test('items are ordered by creation, checklists by latest item', () => {
+Deno.test('items are ordered by creation, checklists by latest item', () => {
   fresh();
   const a = seed(['milk', 'eggs', 'bread']);
   const b = seed([]);
@@ -21,7 +20,7 @@ test('items are ordered by creation, checklists by latest item', () => {
   assert.equal(store.listChecklists()[0]?.checklist.id, a.checklistId);
 });
 
-test('undoing an unsynced add removes the item entirely', () => {
+Deno.test('undoing an unsynced add removes the item entirely', () => {
   fresh();
   const { itemIds: [milk] } = seed(['milk']);
   assert.ok(milk);
@@ -29,7 +28,7 @@ test('undoing an unsynced add removes the item entirely', () => {
   assert.equal(store.getItem(milk), undefined);
 });
 
-test('undoing a synced add leaves a tombstone so the removal syncs', () => {
+Deno.test('undoing a synced add leaves a tombstone so the removal syncs', () => {
   fresh();
   const { itemIds: [milk] } = seed(['milk']);
   assert.ok(milk);
@@ -40,7 +39,7 @@ test('undoing a synced add leaves a tombstone so the removal syncs', () => {
   assert.ok(item(milk).updated_at > before);
 });
 
-test('undoing an unsynced toggle restores the record exactly, timestamp included', () => {
+Deno.test('undoing an unsynced toggle restores the record exactly, timestamp included', () => {
   fresh();
   const { itemIds: [eggs] } = seed(['eggs']);
   assert.ok(eggs);
@@ -52,7 +51,7 @@ test('undoing an unsynced toggle restores the record exactly, timestamp included
   assert.deepEqual(item(eggs), original);
 });
 
-test('undoing a synced toggle is a new change and keeps fields changed elsewhere', () => {
+Deno.test('undoing a synced toggle is a new change and keeps fields changed elsewhere', () => {
   fresh();
   const { itemIds: [eggs] } = seed(['eggs']);
   assert.ok(eggs);
@@ -68,7 +67,7 @@ test('undoing a synced toggle is a new change and keeps fields changed elsewhere
   assert.ok(item(eggs).updated_at > toggled.updated_at);
 });
 
-test('an unsynced action on a record changed by a later merge falls back to a synced-style undo', () => {
+Deno.test('an unsynced action on a record changed by a later merge falls back to a synced-style undo', () => {
   fresh();
   const { itemIds: [eggs] } = seed(['eggs']);
   assert.ok(eggs);
@@ -79,7 +78,7 @@ test('an unsynced action on a record changed by a later merge falls back to a sy
   assert.equal(item(eggs).status, 'checked', 'the merged change survives');
 });
 
-test('delete, edit and rename undo', () => {
+Deno.test('delete, edit and rename undo', () => {
   fresh();
   const { checklistId, itemIds: [milk, bread] } = seed(['milk', 'bread']);
   assert.ok(milk && bread);
@@ -95,7 +94,7 @@ test('delete, edit and rename undo', () => {
   assert.equal(store.getChecklist(checklistId)?.name, 'Groceries');
 });
 
-test('clone resets every item, and undoing it removes the copy locally even after a sync', () => {
+Deno.test('clone resets every item, and undoing it removes the copy locally even after a sync', () => {
   fresh();
   const { checklistId, itemIds: [, eggs] } = seed(['milk', 'eggs', 'bread']);
   assert.ok(eggs);
@@ -112,7 +111,7 @@ test('clone resets every item, and undoing it removes the copy locally even afte
   assert.equal(store.itemsFor(copy).length, 0);
 });
 
-test('deleting a checklist is local-only and undo restores it as it was, synced or not', () => {
+Deno.test('deleting a checklist is local-only and undo restores it as it was, synced or not', () => {
   for (const synced of [false, true]) {
     fresh();
     const { checklistId, itemIds: [milk] } = seed(['milk']);
@@ -128,7 +127,7 @@ test('deleting a checklist is local-only and undo restores it as it was, synced 
   }
 });
 
-test('a failed save rolls back memory and the undo stack', () => {
+Deno.test('a failed save rolls back memory and the undo stack', () => {
   const { local } = fresh();
   const { itemIds: [milk] } = seed(['milk']);
   assert.ok(milk);
@@ -140,13 +139,13 @@ test('a failed save rolls back memory and the undo stack', () => {
   assert.equal(store.getItem(milk), undefined);
 });
 
-test('actions on missing records throw instead of doing nothing', () => {
+Deno.test('actions on missing records throw instead of doing nothing', () => {
   fresh();
   assert.throws(() => dispatch({ type: 'toggleItem', id: 'nope' }), /Item nope not found/);
   assert.equal(canUndo(), false);
 });
 
-test('the undo stack survives a reload of the same tab', async () => {
+Deno.test('the undo stack survives a reload of the same tab', async () => {
   const { session } = fresh();
   seed(['milk']);
   const actions = await import('../src/actions.ts');

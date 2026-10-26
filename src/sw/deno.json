@@ -1,0 +1,4 @@
+{
+  // Service workers get WebWorker globals, which clash with the DOM globals the rest of src/ uses.
+  "compilerOptions": { "lib": ["esnext", "webworker"] }
+}

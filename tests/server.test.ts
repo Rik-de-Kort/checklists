@@ -1,31 +1,27 @@
-import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AddressInfo } from 'node:net';
-import type { Server } from 'node:http';
-import { makeServer, openDb } from '../server/server.ts';
+import { openDb, serve } from '../server/server.ts';
 import * as store from '../src/store.ts';
 import { dispatch } from '../src/actions.ts';
 import { pull, sync } from '../src/sync.ts';
 import { fresh, item, seed } from './helpers.ts';
 
-let server: Server;
+let server: Deno.HttpServer<Deno.NetAddr>;
 let base: string;
 
-before(async () => {
-  server = makeServer(openDb(':memory:'));
-  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
-  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+Deno.test.beforeAll(() => {
+  server = serve(openDb(':memory:'), { hostname: '127.0.0.1', port: 0, onListen: () => {} });
+  base = `http://127.0.0.1:${server.addr.port}`;
   Object.defineProperty(globalThis, 'location', { value: new URL(`${base}/`), configurable: true });
 });
 
-after(() => server.close());
+Deno.test.afterAll(() => server.shutdown());
 
 const post = (path: string, body: string) => fetch(base + path, { method: 'POST', body });
 
 const checklist = { id: 'c1', name: 'Groceries', created_at: 1, updated_at: 10 };
 const milk = { id: 'i1', checklist_id: 'c1', label: 'milk', status: 'unchecked', created_at: 1, updated_at: 10, deleted: false };
 
-test('push then pull returns the records; older writes lose', async () => {
+Deno.test('push then pull returns the records; older writes lose', async () => {
   assert.equal((await post('/api/push', JSON.stringify({ checklists: [checklist], items: [milk] }))).status, 200);
   const stale = { ...milk, label: 'stale', updated_at: 5 };
   const newer = { ...milk, deleted: true, updated_at: 20 };
@@ -37,7 +33,7 @@ test('push then pull returns the records; older writes lose', async () => {
   assert.deepEqual(res, { checklists: [checklist], items: [newer] });
 });
 
-test('bad requests get a 400 with a reason, and nothing is stored', async () => {
+Deno.test('bad requests get a 400 with a reason, and nothing is stored', async () => {
   const cases: [string, string, RegExp][] = [
     ['/api/push', 'not json', /JSON/],
     ['/api/push', '[]', /JSON object/],
@@ -54,13 +50,13 @@ test('bad requests get a 400 with a reason, and nothing is stored', async () => 
   assert.equal((await post('/api/nope', '{}')).status, 404);
 });
 
-test('serves the app, and nothing outside public/', async () => {
+Deno.test('serves the app, and nothing outside public/', async () => {
   const index = await fetch(`${base}/`);
   assert.equal(index.status, 200);
   assert.match(index.headers.get('content-type') ?? '', /text\/html/);
   assert.match(await index.text(), /<html/i);
   const js = await fetch(`${base}/js/app.js`);
-  assert.equal(js.status, 200, 'run tsc -b first');
+  assert.equal(js.status, 200, 'run deno task build first');
   assert.match(js.headers.get('content-type') ?? '', /text\/javascript/);
   assert.equal((await fetch(`${base}/manifest.webmanifest`)).headers.get('content-type'), 'application/manifest+json');
   assert.equal((await fetch(`${base}/..%2Fpackage.json`)).status, 404);
@@ -68,7 +64,7 @@ test('serves the app, and nothing outside public/', async () => {
   assert.equal((await fetch(`${base}/%E0%A4%A`)).status, 400);
 });
 
-test('the app syncs against the real server', async () => {
+Deno.test('the app syncs against the real server', async () => {
   fresh();
   const { checklistId, itemIds: [eggs] } = seed(['eggs']);
   assert.ok(eggs);

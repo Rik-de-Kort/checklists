@@ -1,7 +1,7 @@
 // Offline support: serve app files from cache, refresh the cache in the background.
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
-const CACHE = 'checklist-v2';
+const CACHE = 'checklist-v3';
 const ASSETS = [
   './',
   'index.html',
@@ -9,14 +9,6 @@ const ASSETS = [
   'manifest.webmanifest',
   'icon.svg',
   'js/app.js',
-  'js/actions.js',
-  'js/errors.js',
-  'js/store.js',
-  'js/sync.js',
-  'js/time.js',
-  'js/types.js',
-  'js/ui.js',
-  'js/validate.js',
 ];
 
 sw.addEventListener('install', (e) => {

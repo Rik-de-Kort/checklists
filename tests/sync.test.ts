@@ -1,4 +1,3 @@
-import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as store from '../src/store.ts';
 import { dispatch, undo } from '../src/actions.ts';
@@ -27,7 +26,7 @@ function fakeServer(onPush: () => void = () => {}): void {
   };
 }
 
-test('changes made before a sync are undone as synced changes', async () => {
+Deno.test('changes made before a sync are undone as synced changes', async () => {
   fresh();
   const { itemIds: [milk] } = seed(['milk']);
   assert.ok(milk);
@@ -37,7 +36,7 @@ test('changes made before a sync are undone as synced changes', async () => {
   assert.equal(item(milk).deleted, true);
 });
 
-test('a change made while a sync is in flight still counts as unsynced', async () => {
+Deno.test('a change made while a sync is in flight still counts as unsynced', async () => {
   fresh();
   const { itemIds: [milk] } = seed(['milk']);
   assert.ok(milk);
@@ -48,7 +47,7 @@ test('a change made while a sync is in flight still counts as unsynced', async (
   assert.equal(item(milk).status, 'unchecked');
 });
 
-test('a failed sync leaves everything unsynced and reports the error', async () => {
+Deno.test('a failed sync leaves everything unsynced and reports the error', async () => {
   fresh();
   seed(['milk']);
   globalThis.fetch = async () => new Response('{"error": "db locked"}', { status: 500, statusText: 'Internal Server Error' });

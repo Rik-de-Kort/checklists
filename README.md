@@ -1,21 +1,20 @@
 # Checklists
 
-A home-cooked, offline-first, chat-style checklist PWA. TypeScript compiled by `tsc`, no bundler, no runtime
-dependencies. See `spec.md`.
+A home-cooked, offline-first, chat-style checklist PWA. TypeScript on Deno, no dependencies. See `spec.md`.
 
 ## Run
 
 ```sh
-npm install
-npm run dev                         # compile src/ to public/, watch, and serve http://127.0.0.1:8000
-node server/server.ts --host 0.0.0.0 --port 8000 --db /path/to/data.sqlite
+deno task dev                       # bundle src/ into public/, watch, and serve http://127.0.0.1:8000
+deno task start --host 0.0.0.0 --port 8000 --db /path/to/data.sqlite
 ```
 
-The source is TypeScript in `src/`; `npm run build` compiles it into `public/js/` (and `public/sw.js`),
-which is not committed. `npm test` type-checks and runs the tests in `tests/` (Node runs the `.ts` files
-directly), including the server tests, which run the app's sync against a real server.
+The source is TypeScript in `src/`; `deno task build` bundles it into `public/js/app.js` (and `public/sw.js`),
+which is not committed. `deno task test` type-checks everything, builds, and runs the tests in `tests/`,
+including the server tests, which run the app's sync against a real server.
 
-The server needs Node 26 (it uses the built-in `node:sqlite` and runs its `.ts` source directly).
+All configuration is in `deno.json`. The service worker has its own `src/sw/deno.json` only because its
+WebWorker globals clash with the DOM globals the rest of `src/` is checked against.
 
 The server serves `public/` and the sync API. The app also works from any static host;
 sync then just shows an error state.

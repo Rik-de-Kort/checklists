@@ -1,5 +1,4 @@
 *.sqlite
-node_modules/
-# Compiled from src/ by `npm run build`
+# Bundled from src/ by `deno task build`
 public/js/
 public/sw.js

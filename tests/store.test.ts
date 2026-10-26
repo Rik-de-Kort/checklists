@@ -1,4 +1,3 @@
-import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as store from '../src/store.ts';
 import { dispatch } from '../src/actions.ts';
@@ -6,12 +5,12 @@ import { now } from '../src/time.ts';
 import { parseRecords } from '../src/validate.ts';
 import { fresh, freshStorage, item, seed } from './helpers.ts';
 
-test('missing storage starts empty', () => {
+Deno.test('missing storage starts empty', () => {
   fresh();
   assert.deepEqual(store.exportData(), { checklists: [], items: [] });
 });
 
-test('unreadable storage throws, keeps a copy, and is never overwritten', () => {
+Deno.test('unreadable storage throws, keeps a copy, and is never overwritten', () => {
   const { local } = freshStorage();
   local.setItem(store.KEY, '{"checklists": {}, "items": {"x": {"id": "x"}}}');
   assert.throws(() => store.init(), /unreadable.*checklist-db-corrupt/);
@@ -21,14 +20,14 @@ test('unreadable storage throws, keeps a copy, and is never overwritten', () => 
   assert.equal(local.getItem(store.KEY), 'not json');
 });
 
-test('data saved before syncedThrough existed still loads', () => {
+Deno.test('data saved before syncedThrough existed still loads', () => {
   const { local } = freshStorage();
   local.setItem(store.KEY, JSON.stringify({ checklists: {}, items: {}, lastSync: 5 }));
   store.init();
   assert.equal(store.syncedThrough(), 0);
 });
 
-test('merge keeps the newer copy of each record and ignores orphans', () => {
+Deno.test('merge keeps the newer copy of each record and ignores orphans', () => {
   fresh();
   const { itemIds: [eggs] } = seed(['eggs']);
   assert.ok(eggs);
@@ -44,14 +43,14 @@ test('merge keeps the newer copy of each record and ignores orphans', () => {
   assert.equal(store.getItem('orphan'), undefined);
 });
 
-test('incoming records are validated', () => {
+Deno.test('incoming records are validated', () => {
   assert.throws(() => parseRecords({ items: [{ id: 'a', checklist_id: 'c', label: 'x', status: 'maybe', created_at: 1, updated_at: 1 }] }), /item\.status/);
   assert.throws(() => parseRecords({ checklists: [{ id: 'c', name: 'x', created_at: '2026-01-01', updated_at: 1 }] }), /checklist\.created_at/);
   assert.throws(() => parseRecords({ checklists: 'nope' }), /checklists/);
   assert.deepEqual(parseRecords({}), { checklists: [], items: [] });
 });
 
-test('now() is strictly increasing', () => {
+Deno.test('now() is strictly increasing', () => {
   const a = now();
   const b = now();
   assert.ok(b > a);
