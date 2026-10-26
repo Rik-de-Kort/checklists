@@ -27,6 +27,14 @@ start without it. Service workers, `navigator.share` and the clipboard need a
 secure context: `localhost` works, but to use it from a phone put the server
 behind HTTPS (e.g. Caddy or Tailscale serve).
 
+## Deploy
+
+Hosted on Fly at https://seznam.fly.dev (`fly.toml`, `Dockerfile`). Deploy with
+`fly deploy --ha=false`: the SQLite database lives on the `data` volume at
+`/data`, and a volume belongs to one machine, so there must only ever be one.
+The machine stops when idle and starts on the next request. Fly snapshots the
+volume daily and keeps 5 days.
+
 ## How it works
 
 - `src/store.ts`: all data in one localStorage blob. Every record has

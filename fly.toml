@@ -1,0 +1,19 @@
+app = "seznam"
+primary_region = "ams"
+
+[http_service]
+internal_port = 8080
+force_https = true
+# Stop when idle, start on the next request. The first request after a pause takes a second or two.
+auto_stop_machines = "stop"
+auto_start_machines = true
+min_machines_running = 0
+
+# SQLite lives on this volume. A volume belongs to one machine, so run exactly one.
+[mounts]
+source = "data"
+destination = "/data"
+
+[[vm]]
+size = "shared-cpu-1x"
+memory = "256mb"
