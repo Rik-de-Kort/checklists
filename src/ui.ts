@@ -111,6 +111,8 @@ function parseRoute(): Route {
 
 // ---------- rendering ----------
 
+const APP_NAME = "Seznam";
+
 function render(): void {
   if (rendering) {
     renderQueued = true;
@@ -138,6 +140,10 @@ function render(): void {
         : overviewView()),
     );
     renderedRoute = location.hash;
+    const shown = route.name === "checklist"
+      ? store.getChecklist(route.id)
+      : undefined;
+    document.title = shown ? `${shown.name} - ${APP_NAME}` : APP_NAME;
 
     const main = app.querySelector("main");
     if (!main) throw new Error("Rendered page has no <main>");

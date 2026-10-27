@@ -1,6 +1,6 @@
 {
-  "name": "Checklists",
-  "short_name": "Checklists",
+  "name": "Seznam",
+  "short_name": "Seznam",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
