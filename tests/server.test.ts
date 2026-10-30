@@ -113,11 +113,6 @@ Deno.test("serves the app, and nothing outside public/", async () => {
     "application/manifest+json",
   );
   assert.equal((await fetch(`${base}/..%2Fdeno.json`)).status, 404);
-  const link = await fetch(`${base}/Tiger-lamp-ocean-plum-hat`, {
-    redirect: "manual",
-  });
-  assert.equal(link.status, 302, "share links redirect to the app's route");
-  assert.equal(link.headers.get("location"), "./#/c/tiger-lamp-ocean-plum-hat");
   assert.equal((await fetch(`${base}/missing.js`)).status, 404);
   assert.equal(
     (await fetch(`${base}/3f2a9c1e-7b4d-4e8a-9c2f-1a2b3c4d5e6f`)).status,
@@ -125,6 +120,26 @@ Deno.test("serves the app, and nothing outside public/", async () => {
     "only word IDs are share links",
   );
   assert.equal((await fetch(`${base}/%E0%A4%A`)).status, 400);
+});
+
+Deno.test("share links carry the checklist's name for link previews, and open the app", async () => {
+  const id = "bless-bride-cloak-dwell-harm";
+  const fish = { id, name: `Fish & "chips" <b>`, created_at: 1, updated_at: 1 };
+  await (await post("/api/push", JSON.stringify({ checklists: [fish] }))).body
+    ?.cancel();
+  // Capitalized, as a phone might type it.
+  const res = await fetch(`${base}/Bless-bride-cloak-dwell-harm`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type") ?? "", /text\/html/);
+  const page = await res.text();
+  const title = "Fish &#38; &#34;chips&#34; &#60;b&#62; - Seznam";
+  assert.ok(page.includes(`<title>${title}</title>`), page);
+  assert.ok(page.includes(`<meta property="og:title" content="${title}">`));
+  assert.ok(page.includes(`content="0; url=./#/c/${id}"`), page);
+
+  const unknown = await fetch(`${base}/acid-acorn-acre-acts-afar`);
+  assert.equal(unknown.status, 200, "the app may still have it locally");
+  assert.ok((await unknown.text()).includes("<title>Seznam</title>"));
 });
 
 Deno.test("the app syncs against the real server", async () => {

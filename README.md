@@ -20,8 +20,8 @@ All configuration is in `deno.json`. The service worker has its own
 the rest of `src/` is checked against.
 
 The server serves `public/` and the sync API. The app also works from any static
-host; sync then just shows an error state, and share links (`/<id>`, which the
-server redirects to `#/c/<id>`) don't resolve.
+host; sync then just shows an error state, and share links (`/<id>`, served by
+the server) don't resolve.
 
 The app needs the Temporal API (current Chrome, Edge and Firefox) and refuses to
 start without it. Service workers, `navigator.share` and the clipboard need a
@@ -47,7 +47,9 @@ volume daily and keeps 5 days.
   the records exactly; undoing a synced change writes a new change (fresh
   `updated_at`, tombstones) so it propagates.
 - `src/ui.ts`: hash routes `#/` (overview) and `#/c/<id>` (checklist). Share
-  links are `/<id>`, which the server redirects to `#/c/<id>`.
+  links are `/<id>`: the server answers with a tiny page titled after the
+  checklist, so chat apps show its name on the link card, and it forwards
+  browsers to `#/c/<id>`.
 - `src/words.ts`: checklist IDs are five random words
   (`tiger-lamp-ocean-plum-hat`, about 52 bits) so links are easy to type on a
   phone. Validation rejects any other checklist ID shape. Item IDs are UUIDs.

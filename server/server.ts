@@ -178,14 +178,6 @@ async function serveStatic(req: Request, publicDir: string): Promise<Response> {
     info = await statOrNull(file);
   }
   if (!info?.isFile) {
-    // Share links are /<checklist id>, easier to type than the app's own #/c/<id> route.
-    const shareId = pathname.slice(1).toLowerCase();
-    if (CHECKLIST_ID.test(shareId)) {
-      return new Response(null, {
-        status: 302,
-        headers: { Location: `./#/c/${shareId}` },
-      });
-    }
     return new Response("not found", {
       status: 404,
       headers: { "Content-Type": "text/plain" },
@@ -197,6 +189,38 @@ async function serveStatic(req: Request, publicDir: string): Promise<Response> {
   };
   if (req.method === "HEAD") return new Response(null, { headers });
   return new Response((await Deno.open(file)).readable, { headers });
+}
+
+const escapeHtml = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+/**
+ * Share links are /<checklist id>: easier to type than the app's #/c/<id> route. Chat apps build
+ * their link cards from this page without running scripts, so it carries the checklist's name,
+ * and sends browsers on to the app.
+ */
+function sharePage(req: Request, db: DatabaseSync, id: string): Response {
+  const row = db.prepare("SELECT name FROM checklists WHERE id = ?").get(id);
+  // Not on the server (yet): the app can still have it locally, or will say it's missing.
+  const title = typeof row?.["name"] === "string"
+    ? `${row["name"]} - Seznam`
+    : "Seznam";
+  const target = `./#/c/${id}`;
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>${escapeHtml(title)}</title>
+<meta property="og:title" content="${escapeHtml(title)}">
+<meta property="og:site_name" content="Seznam">
+<meta http-equiv="refresh" content="0; url=${target}">
+</head>
+<body><a href="${target}">Open ${escapeHtml(title)}</a></body>
+</html>
+`;
+  return new Response(req.method === "HEAD" ? null : html, {
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
 }
 
 async function handle(
@@ -211,6 +235,8 @@ async function handle(
     return Response.json(route(db, await readJson(req)));
   }
   if (req.method === "GET" || req.method === "HEAD") {
+    const shareId = path.slice(1).toLowerCase();
+    if (CHECKLIST_ID.test(shareId)) return sharePage(req, db, shareId);
     return serveStatic(req, publicDir);
   }
   return new Response(null, {

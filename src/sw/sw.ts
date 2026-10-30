@@ -10,6 +10,10 @@ const ASSETS = [
   "icon.svg",
   "js/app.js",
 ];
+// Everything else (the sync API, share link pages) goes straight to the network.
+const ASSET_PATHS = new Set(
+  ASSETS.map((a) => new URL(a, sw.location.href).pathname),
+);
 
 sw.addEventListener("install", (e) => {
   e.waitUntil(
@@ -35,7 +39,7 @@ sw.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (
     e.request.method !== "GET" || url.origin !== sw.location.origin ||
-    url.pathname.includes("/api/")
+    !ASSET_PATHS.has(url.pathname)
   ) return;
   e.respondWith(respond(e));
 });
