@@ -20,10 +20,6 @@ const ICONS = {
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   sync:
     '<path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
-  share:
-    '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>',
-  clone:
-    '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   more:
     '<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',
   plus:
@@ -418,9 +414,9 @@ function checklistView(id: string): Node[] {
       }, icon("back")),
       title,
       undoButton(),
-      iconButton("share", "Share link", () => void share(c)),
-      iconButton("clone", "Clone (all unchecked)", () => clone(c)),
       menu(
+        menuItem("Share link", () => void share(c)),
+        menuItem("Clone (all unchecked)", () => clone(c)),
         menuItem("Export as text", () => exportText(c, items)),
         menuItem("Delete from this device", () => deleteChecklist(c), "danger"),
       ),
