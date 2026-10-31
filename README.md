@@ -30,11 +30,14 @@ behind HTTPS (e.g. Caddy or Tailscale serve).
 
 ## Deploy
 
-Hosted on Fly at https://seznam.fly.dev (`fly.toml`, `Dockerfile`). Deploy with
-`fly deploy --ha=false`: the SQLite database lives on the `data` volume at
-`/data`, and a volume belongs to one machine, so there must only ever be one.
-The machine stops when idle and starts on the next request. Fly snapshots the
-volume daily and keeps 5 days.
+Hosted on Fly at https://seznam.fly.dev (`fly.toml`, `Dockerfile`). GitHub
+Actions (`.github/workflows/ci.yml`) runs `deno task test` on every push and
+deploys master once it passes, using the `FLY_API_TOKEN` secret in the
+`production` environment. To deploy by hand, use `fly deploy --ha=false`. The
+`--ha=false` matters: the SQLite database lives on the `data` volume at `/data`,
+and a volume belongs to one machine, so there must only ever be one. The machine
+stops when idle and starts on the next request. Fly snapshots the volume daily
+and keeps 5 days.
 
 ## How it works
 
