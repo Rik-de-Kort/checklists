@@ -13,6 +13,7 @@ import { wordId } from "./words.ts";
 const SWIPE_THRESHOLD = 80;
 const LONG_PRESS_MS = 500;
 const TOAST_MS = 4000;
+const SYNC_INTERVAL_MS = 3000;
 
 const ICONS = {
   back: '<polyline points="15 18 9 12 15 6"/>',
@@ -99,6 +100,13 @@ export function init(): void {
   importInput.addEventListener("change", () => void importJson());
   render();
   void runSync({ quiet: true });
+  // Push our changes and pull everyone else's; runSync skips a tick while one is still in flight.
+  setInterval(() => {
+    if (!document.hidden) void runSync({ quiet: true });
+  }, SYNC_INTERVAL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) void runSync({ quiet: true });
+  });
 }
 
 function parseRoute(): Route {
