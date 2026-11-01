@@ -51,6 +51,28 @@ Deno.test("a change made while a sync is in flight still counts as unsynced", as
   assert.equal(item(milk).status, "unchecked");
 });
 
+Deno.test("a sync that brings nothing new doesn't re-render or write", async () => {
+  fresh();
+  seed(["milk"]);
+  fakeServer();
+  await sync(); // pushes the seeded changes
+  let renders = 0;
+  store.subscribe(() => renders++);
+  const setItem = localStorage.setItem;
+  let writes = 0;
+  localStorage.setItem = (k, v) => {
+    writes++;
+    setItem.call(localStorage, k, v);
+  };
+  try {
+    await sync();
+  } finally {
+    localStorage.setItem = setItem;
+  }
+  assert.equal(renders, 0);
+  assert.equal(writes, 0);
+});
+
 Deno.test("a failed sync leaves everything unsynced and reports the error", async () => {
   fresh();
   seed(["milk"]);

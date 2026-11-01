@@ -58,6 +58,7 @@ let editingId: string | null = null;
 let pendingFocus: string | null = null; // data-key of an input to focus and select after the next render
 let scrollToBottom = false;
 let syncStatus: SyncStatus = "idle";
+let syncing = false;
 const remoteLookups = new Map<string, Lookup>();
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -695,18 +696,26 @@ async function share(c: Checklist): Promise<void> {
 }
 
 async function runSync({ quiet = false } = {}): Promise<void> {
-  if (syncStatus === "busy") return;
-  syncStatus = "busy";
-  render();
+  if (syncing) return;
+  syncing = true;
+  // Background syncs don't spin the button: re-rendering every few seconds disrupts typing.
+  if (!quiet) setSyncStatus("busy");
   try {
     await sync();
-    syncStatus = "idle";
+    setSyncStatus("idle");
     if (!quiet) toast("Synced");
   } catch (e) {
     console.error("Sync failed:", e);
-    syncStatus = "error";
+    setSyncStatus("error");
     if (!quiet) toast(`Sync failed: ${message(e)}`);
+  } finally {
+    syncing = false;
   }
+}
+
+function setSyncStatus(s: SyncStatus): void {
+  if (s === syncStatus) return;
+  syncStatus = s;
   render();
 }
 

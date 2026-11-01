@@ -67,8 +67,13 @@ export function init(): void {
 }
 
 export function save(): void {
-  localStorage.setItem(KEY, JSON.stringify(data()));
+  persist();
   notify();
+}
+
+// Write to storage without re-rendering, for bookkeeping nobody sees (e.g. syncedThrough).
+export function persist(): void {
+  localStorage.setItem(KEY, JSON.stringify(data()));
 }
 
 // Re-read from storage, e.g. after another tab changed the data or a save failed.

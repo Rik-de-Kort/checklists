@@ -23,6 +23,9 @@ export async function sync(): Promise<void> {
   // request is in flight) are not, and must still count as unsynced for undo.
   const snapshotAt = now();
   const local = store.exportData();
+  const unsynced = [...local.checklists, ...local.items].some((r) =>
+    r.updated_at > store.syncedThrough()
+  );
   await post("api/push", local);
   const remote = parseRecords(
     await post("api/pull", { ids: local.checklists.map((c) => c.id) }),
@@ -32,9 +35,13 @@ export async function sync(): Promise<void> {
     checklists: remote.checklists.filter((c) => store.getChecklist(c.id)),
     items: remote.items,
   };
-  store.merge(kept);
+  const changed = store.merge(kept);
   store.setSyncedThrough(snapshotAt);
-  store.save();
+  // This runs every few seconds: only re-render when something arrived, or the page would be
+  // rebuilt under the user's fingers (resetting the keyboard mid-word). Only write when needed,
+  // since every write makes other open tabs reload.
+  if (changed) store.save();
+  else if (unsynced) store.persist();
 }
 
 // Fetch checklists this device doesn't have yet (e.g. from a shared link).
