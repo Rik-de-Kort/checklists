@@ -8,6 +8,7 @@ import { localDate, relTime, toInstant } from "./time.ts";
 import { CHECKLIST_ID, parseRecords } from "./validate.ts";
 import type { ChecklistSummary } from "./store.ts";
 import type { Checklist, Item } from "./types.ts";
+import { VERSION } from "./version.ts";
 import { wordId } from "./words.ts";
 
 const SWIPE_THRESHOLD = 80;
@@ -311,6 +312,7 @@ function overviewView(): Node[] {
       menu(
         menuItem("Export all (JSON)", exportJson),
         menuItem("Import JSON…", () => importInput.click()),
+        menuItem("About", () => toast(`${APP_NAME} version ${VERSION}`)),
       ),
     ),
     h(
