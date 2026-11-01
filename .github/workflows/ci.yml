@@ -10,7 +10,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: denoland/setup-deno@v2
         with:
           deno-version: 2.9.8 # keep in step with the Dockerfile
@@ -26,8 +26,8 @@ jobs:
       cancel-in-progress: false
     environment: production
     steps:
-      - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@1.5
+      - uses: actions/checkout@v7
+      - uses: superfly/flyctl-actions/setup-flyctl@master
       # --ha=false: the SQLite volume belongs to one machine, so there must only ever be one (see README).
       - run: flyctl deploy --remote-only --ha=false
         env:
