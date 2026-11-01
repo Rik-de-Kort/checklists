@@ -556,7 +556,7 @@ function attachGestures(
     clearTimeout(timer);
     start = null;
     bubble.style.transform = "";
-    row.classList.remove("swiping", "armed");
+    row.classList.remove("swiping", "armed", "rightward");
   };
 
   bubble.addEventListener("pointerdown", (e) => {
@@ -579,17 +579,18 @@ function attachGestures(
       reset(); // vertical scroll; let the browser have it
       return;
     }
-    dx = Math.min(0, mx);
-    if (dx < -8) {
+    dx = mx; // either direction deletes
+    if (Math.abs(dx) > 8) {
       suppressClick = true;
       bubble.setPointerCapture(e.pointerId);
       row.classList.add("swiping");
     }
-    row.classList.toggle("armed", dx < -SWIPE_THRESHOLD);
+    row.classList.toggle("rightward", dx > 0);
+    row.classList.toggle("armed", Math.abs(dx) > SWIPE_THRESHOLD);
     bubble.style.transform = `translateX(${dx}px)`;
   });
   bubble.addEventListener("pointerup", () => {
-    if (start && dx < -SWIPE_THRESHOLD) deleteItem(item.id);
+    if (start && Math.abs(dx) > SWIPE_THRESHOLD) deleteItem(item.id);
     else reset();
   });
   bubble.addEventListener("pointercancel", reset);

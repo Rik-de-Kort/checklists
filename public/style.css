@@ -387,6 +387,11 @@ main {
 .swiping .swipe-bg {
   opacity: 1;
 }
+/* Show the bin on the side the bubble moves away from. */
+.rightward .swipe-bg {
+  right: auto;
+  left: 12px;
+}
 .armed .swipe-bg {
   color: var(--danger);
   transform: scale(1.25);
