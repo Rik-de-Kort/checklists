@@ -1,7 +1,9 @@
-// Offline support: serve app files from cache, refresh the cache in the background.
+// Offline support: serve app files from the network so a launch always gets the latest deploy,
+// keeping a copy in the cache for when we're offline or the server is slow to wake up.
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
 const CACHE = "checklist-v3";
+const NETWORK_TIMEOUT_MS = 3000;
 const ASSETS = [
   "./",
   "index.html",
@@ -46,19 +48,25 @@ sw.addEventListener("fetch", (e) => {
 
 async function respond(e: FetchEvent): Promise<Response> {
   const cache = await caches.open(CACHE);
-  const cached = await cache.match(e.request, { ignoreSearch: true });
-  const network = fetch(e.request).then((res) => {
-    if (res.ok) void cache.put(e.request, res.clone());
-    return res;
-  });
-  if (cached) {
-    // Being offline is the normal case here, not an error: keep serving the cached copy.
-    e.waitUntil(
-      network.catch((err: unknown) =>
-        console.warn(`Background refresh of ${e.request.url} failed:`, err)
+  const network = fetch(e.request);
+  // Keep the worker alive until the copy is written; the browser may stop it right after responding.
+  e.waitUntil(
+    network
+      .then((res) => res.ok ? cache.put(e.request, res.clone()) : undefined)
+      // Being offline is the normal case here, not an error: the cached copy is served instead.
+      .catch((err: unknown) =>
+        console.warn(`Refreshing the cached ${e.request.url} failed:`, err)
       ),
-    );
-    return cached;
+  );
+  const cached = await cache.match(e.request, { ignoreSearch: true });
+  if (!cached) return network;
+  const timeout = new Promise<null>((resolve) =>
+    setTimeout(() => resolve(null), NETWORK_TIMEOUT_MS)
+  );
+  try {
+    const res = await Promise.race([network, timeout]);
+    return res?.ok ? res : cached;
+  } catch {
+    return cached; // offline; already logged above
   }
-  return network;
 }
