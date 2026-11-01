@@ -313,7 +313,6 @@ main {
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 2px;
 }
 
@@ -325,7 +324,7 @@ main {
   align-items: flex-start;
   gap: 8px;
   padding: 8px 14px 8px 10px;
-  border-radius: 18px 18px 4px 18px;
+  border-radius: 18px 18px 18px 4px;
   background: var(--bubble);
   overflow-wrap: anywhere;
   cursor: pointer;
