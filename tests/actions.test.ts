@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import * as store from "../src/store.ts";
-import { canUndo, dispatch, undo } from "../src/actions.ts";
+import { canUndo, dispatch, init, undo } from "../src/actions.ts";
+import { keyFromTime } from "../src/order.ts";
 import { now } from "../src/time.ts";
 import type { Item } from "../src/types.ts";
+
+type Snapshot = { items: Record<string, { position?: string } | null> };
 import { wordId } from "../src/words.ts";
 import { fresh, item, seed } from "./helpers.ts";
 
@@ -180,4 +183,45 @@ Deno.test("the undo stack survives a reload of the same tab", async () => {
   assert.equal(actions.canUndo(), true);
   session.setItem("checklist-undo", '{"not": "a list"}');
   assert.throws(() => actions.init(), /unreadable/);
+});
+
+Deno.test("a clone keeps the items' order", () => {
+  fresh();
+  const { checklistId, itemIds: [milk, eggs] } = seed(["milk", "eggs"]);
+  assert.ok(milk && eggs);
+  // Put eggs first, as a move would.
+  store.putItem({ ...item(eggs), position: "Zz" });
+  const id = wordId();
+  dispatch({ type: "cloneChecklist", sourceId: checklistId, id });
+  assert.deepEqual(store.itemsFor(id).map((i) => i.label), ["eggs", "milk"]);
+});
+
+Deno.test("undo history saved before positions existed still undoes", () => {
+  const { session } = fresh();
+  const { itemIds: [milk] } = seed(["milk"]);
+  assert.ok(milk);
+  // The key loading the previous version's data gives it.
+  const position = keyFromTime(item(milk).created_at);
+  store.putItem({ ...item(milk), position });
+  dispatch({ type: "toggleItem", id: milk });
+  // As the previous app version saved it: item snapshots without a position.
+  session.setItem(
+    "checklist-undo",
+    JSON.stringify(
+      JSON.parse(session.getItem("checklist-undo")!).map(
+        (a: { before: Snapshot; after: Snapshot }) => {
+          for (const s of [a.before, a.after]) {
+            for (const i of Object.values(s.items)) {
+              if (i) delete i.position;
+            }
+          }
+          return a;
+        },
+      ),
+    ),
+  );
+  init();
+  undo();
+  assert.equal(item(milk).status, "unchecked");
+  assert.equal(item(milk).position, position);
 });

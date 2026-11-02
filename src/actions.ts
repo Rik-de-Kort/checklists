@@ -3,7 +3,9 @@
 // hasn't been synced yet puts those records back exactly as they were; undoing a synced
 // change writes a new change (fresh updated_at, tombstones) so it propagates like any other.
 import * as store from "./store.ts";
+import { keyBetween } from "./order.ts";
 import { now } from "./time.ts";
+import { parseItem, placed } from "./validate.ts";
 import type { Checklist, EpochMs, Item, Snapshot } from "./types.ts";
 
 const KEY = "checklist-undo";
@@ -45,7 +47,20 @@ function loadStack(): Action[] {
   if (!Array.isArray(parsed) || !parsed.every(isAction)) {
     throw new Error(`Undo history in sessionStorage["${KEY}"] is unreadable`);
   }
-  return parsed;
+  // Saved by an app version from before positions, items may have none; undo mustn't restore that.
+  return parsed.map((a) => ({
+    ...a,
+    before: withPositions(a.before),
+    after: withPositions(a.after),
+  }));
+}
+
+function withPositions(s: Snapshot): Snapshot {
+  const items: Snapshot["items"] = {};
+  for (const [id, i] of Object.entries(s.items)) {
+    items[id] = i && placed(parseItem(i));
+  }
+  return { ...s, items };
 }
 
 function isAction(x: unknown): x is Action {
@@ -71,6 +86,7 @@ function changed<T extends Checklist | Item>(rec: T, fields: Partial<T>): T {
 function newItem(
   checklistId: string,
   label: string,
+  position: string,
   id: string = store.uuid(),
 ): Item {
   const t = now();
@@ -82,7 +98,7 @@ function newItem(
     created_at: t,
     updated_at: t,
     deleted: false,
-    position: null,
+    position,
   };
 }
 
@@ -130,14 +146,22 @@ const handlers: Handlers = {
         updated_at: t,
       });
       for (const i of store.itemsFor(a.sourceId)) {
-        store.putItem(newItem(a.id, i.label));
+        store.putItem(newItem(a.id, i.label, i.position));
       }
     },
   },
   addItem: {
     label: "Item added",
     do(a) {
-      store.putItem(newItem(a.checklistId, a.label, a.id));
+      const last = store.itemsFor(a.checklistId).at(-1);
+      store.putItem(
+        newItem(
+          a.checklistId,
+          a.label,
+          keyBetween(last?.position ?? null, null),
+          a.id,
+        ),
+      );
     },
   },
   editItem: {

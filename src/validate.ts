@@ -1,5 +1,13 @@
 // Shape checks for data crossing a boundary (storage, import, network). They throw instead of guessing.
-import type { Checklist, Db, EpochMs, Item, Records } from "./types.ts";
+import { isKey, keyFromTime } from "./order.ts";
+import type {
+  Checklist,
+  Db,
+  EpochMs,
+  Item,
+  Records,
+  WireItem,
+} from "./types.ts";
 
 type Obj = Record<string, unknown>;
 
@@ -56,7 +64,7 @@ export function parseChecklist(x: unknown): Checklist {
   };
 }
 
-export function parseItem(x: unknown): Item {
+export function parseItem(x: unknown): WireItem {
   const o = obj(x, "item");
   const status = o["status"];
   if (status !== "checked" && status !== "unchecked") {
@@ -66,7 +74,7 @@ export function parseItem(x: unknown): Item {
   if (typeof deleted !== "boolean") fail("item.deleted", deleted);
   // Missing from data written before items had a position.
   const position = o["position"] ?? null;
-  if (position !== null && (typeof position !== "string" || position === "")) {
+  if (position !== null && (typeof position !== "string" || !isKey(position))) {
     fail("item.position", position);
   }
   return {
@@ -79,6 +87,11 @@ export function parseItem(x: unknown): Item {
     deleted,
     position,
   };
+}
+
+/** The item with its position, deriving one from its creation time if it has none. */
+export function placed(i: WireItem): Item {
+  return { ...i, position: i.position ?? keyFromTime(i.created_at) };
 }
 
 export function parseRecords(x: unknown): Records {
@@ -99,7 +112,9 @@ export function parseDb(x: unknown): Db {
   ) checklists[c.id] = c;
   const items: Db["items"] = {};
   for (
-    const i of Object.values(obj(o["items"], "database.items")).map(parseItem)
+    const i of Object.values(obj(o["items"], "database.items")).map((x) =>
+      placed(parseItem(x))
+    )
   ) items[i.id] = i;
   // Data from before syncedThrough existed counts as never synced.
   const syncedThrough = o["syncedThrough"] === undefined

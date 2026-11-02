@@ -19,9 +19,17 @@ export interface Item {
   readonly updated_at: EpochMs;
   /** Tombstone: deleted items are kept so the deletion can sync. */
   readonly deleted: boolean;
-  /** Fractional index ordering the checklist's items; null for items never placed by hand. */
-  readonly position: string | null;
+  /** Fractional index ordering the checklist's items (see order.ts). */
+  readonly position: string;
 }
+
+/**
+ * An item as sent and stored by the server, where position is null for items written by app
+ * versions from before positions. The app gives those their key from order.keyFromTime.
+ */
+export type WireItem = Omit<Item, "position"> & {
+  readonly position: string | null;
+};
 
 export interface Db {
   checklists: Record<string, Checklist>;
@@ -33,7 +41,7 @@ export interface Db {
 /** Export/import and wire format. */
 export interface Records {
   checklists: Checklist[];
-  items: Item[];
+  items: WireItem[];
 }
 
 /** Records as they were before (or after) an action; null means the record didn't exist. */

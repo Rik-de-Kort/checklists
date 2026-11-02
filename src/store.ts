@@ -1,7 +1,7 @@
 // Local data store: the whole database is one JSON blob in localStorage.
 import { observe } from "./time.ts";
 import { message } from "./errors.ts";
-import { parseDb } from "./validate.ts";
+import { parseDb, placed } from "./validate.ts";
 import type {
   Checklist,
   Db,
@@ -162,10 +162,20 @@ export function removeChecklistLocal(id: string): void {
 
 // ---------- queries ----------
 
+// Ordered by position. Two devices can give items the same position (both adding one at the end
+// while offline), so ties go by creation, then id, for every device to show the same order.
 export function itemsFor(checklistId: string): Item[] {
   return Object.values(data().items)
     .filter((i) => i.checklist_id === checklistId && !i.deleted)
-    .sort((a, b) => a.created_at - b.created_at);
+    .sort((a, b) =>
+      compare(a.position, b.position) || a.created_at - b.created_at ||
+      compare(a.id, b.id)
+    );
+}
+
+// Plain code-unit order, which is what positions are designed for (localeCompare isn't).
+function compare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 // Checklists ordered by most recent item, falling back to the checklist's own creation time.
@@ -211,7 +221,7 @@ export function merge(incoming: Records): boolean {
   }
   for (const i of incoming.items) {
     if (data().checklists[i.checklist_id]) {
-      changed = mergeRecord(data().items, i) || changed;
+      changed = mergeRecord(data().items, placed(i)) || changed;
     }
   }
   return changed;
