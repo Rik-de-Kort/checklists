@@ -3,7 +3,8 @@ import { DatabaseSync } from "node:sqlite";
 import { migrate, openDb, serve } from "../server/server.ts";
 import * as store from "../src/store.ts";
 import { dispatch } from "../src/actions.ts";
-import { pull, sync } from "../src/sync.ts";
+import { latestVersion, pull, sync } from "../src/sync.ts";
+import { VERSION } from "../src/version.ts";
 import { fresh, item, seed } from "./helpers.ts";
 
 let server: Deno.HttpServer<Deno.NetAddr>;
@@ -213,4 +214,11 @@ Deno.test("the app syncs against the real server", async () => {
   await pull([checklistId]);
   assert.equal(item(eggs).label, "free-range eggs");
   assert.equal(store.getChecklist(checklistId)?.name, "Groceries");
+});
+
+Deno.test("the app can ask which version the server has", async () => {
+  const res = await fetch(`${base}/api/version`);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { version: VERSION });
+  assert.equal(await latestVersion(), VERSION);
 });

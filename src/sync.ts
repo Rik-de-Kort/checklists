@@ -44,6 +44,23 @@ export async function sync(): Promise<void> {
   else if (unsynced) store.persist();
 }
 
+// The app version the server has: what a reload would load.
+export async function latestVersion(): Promise<number> {
+  const res = await fetch(new URL("api/version", location.href), {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`api/version: ${res.status} ${res.statusText}`);
+  }
+  const body: unknown = await res.json();
+  const version = typeof body === "object" && body !== null &&
+    "version" in body && body.version;
+  if (!Number.isSafeInteger(version) || (version as number) < 1) {
+    throw new Error(`api/version: invalid response ${JSON.stringify(body)}`);
+  }
+  return version as number;
+}
+
 // Fetch checklists this device doesn't have yet (e.g. from a shared link).
 // Resolves to true if at least one was found on the server.
 export async function pull(ids: string[]): Promise<boolean> {

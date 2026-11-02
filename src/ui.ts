@@ -2,7 +2,7 @@
 // Every store change triggers a full re-render of the current page; data is small.
 import * as store from "./store.ts";
 import { canUndo, describe, dispatch, undo } from "./actions.ts";
-import { pull, sync } from "./sync.ts";
+import { latestVersion, pull, sync } from "./sync.ts";
 import { message } from "./errors.ts";
 import { localDate, relTime, toInstant } from "./time.ts";
 import { CHECKLIST_ID, parseRecords } from "./validate.ts";
@@ -317,6 +317,7 @@ function overviewView(): Node[] {
       menu(
         menuItem("Export all (JSON)", exportJson),
         menuItem("Import JSON…", () => importInput.click()),
+        menuItem("Check for updates", () => void checkForUpdates()),
         menuItem("About", () => toast(`${APP_NAME} version ${VERSION}`)),
       ),
     ),
@@ -836,6 +837,22 @@ async function runSync({ quiet = false } = {}): Promise<void> {
   } finally {
     syncing = false;
   }
+}
+
+// App files are served network-first (see sw.ts), so reloading picks up the new version.
+async function checkForUpdates(): Promise<void> {
+  let latest: number;
+  try {
+    latest = await latestVersion();
+  } catch (e) {
+    console.error("Checking for updates failed:", e);
+    toast(`Couldn't check for updates: ${message(e)}`);
+    return;
+  }
+  if (latest > VERSION) {
+    toast(`Updating to version ${latest}…`);
+    location.reload();
+  } else toast(`${APP_NAME} version ${VERSION} is up to date`);
 }
 
 function setSyncStatus(s: SyncStatus): void {

@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { parseArgs } from "node:util";
 import type { Records } from "../src/types.ts";
 import { CHECKLIST_ID, parseRecords } from "../src/validate.ts";
+import { VERSION } from "../src/version.ts";
 
 const HERE = import.meta.dirname;
 if (!HERE) {
@@ -249,6 +250,8 @@ async function handle(
     return Response.json(route(db, await readJson(req)));
   }
   if (req.method === "GET" || req.method === "HEAD") {
+    // The app built from this same commit, so the version a reload would get.
+    if (path === "/api/version") return Response.json({ version: VERSION });
     const shareId = path.slice(1).toLowerCase();
     if (CHECKLIST_ID.test(shareId)) return sharePage(req, db, shareId);
     return serveStatic(req, publicDir);
