@@ -19,6 +19,8 @@ export interface Item {
   readonly updated_at: EpochMs;
   /** Tombstone: deleted items are kept so the deletion can sync. */
   readonly deleted: boolean;
+  /** Fractional index ordering the checklist's items; null for items never placed by hand. */
+  readonly position: string | null;
 }
 
 export interface Db {

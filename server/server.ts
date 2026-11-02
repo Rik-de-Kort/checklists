@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS items (
     status TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
-    deleted INTEGER NOT NULL DEFAULT 0
+    deleted INTEGER NOT NULL DEFAULT 0,
+    position TEXT
 );
 CREATE INDEX IF NOT EXISTS items_checklist ON items (checklist_id);
 `;
@@ -44,14 +45,16 @@ ON CONFLICT (id) DO UPDATE SET name = excluded.name, updated_at = excluded.updat
 WHERE excluded.updated_at > checklists.updated_at
 `;
 
+// App versions from before items had a position send none; that mustn't erase a stored one.
 const UPSERT_ITEM = `
-INSERT INTO items (id, checklist_id, label, status, created_at, updated_at, deleted)
-VALUES (:id, :checklist_id, :label, :status, :created_at, :updated_at, :deleted)
+INSERT INTO items (id, checklist_id, label, status, created_at, updated_at, deleted, position)
+VALUES (:id, :checklist_id, :label, :status, :created_at, :updated_at, :deleted, :position)
 ON CONFLICT (id) DO UPDATE SET
     label = excluded.label,
     status = excluded.status,
     updated_at = excluded.updated_at,
-    deleted = excluded.deleted
+    deleted = excluded.deleted,
+    position = COALESCE(excluded.position, items.position)
 WHERE excluded.updated_at > items.updated_at
 `;
 
@@ -73,8 +76,19 @@ type Json = Record<string, unknown>;
 
 export function openDb(path: string): DatabaseSync {
   const db = new DatabaseSync(path);
-  db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+/** Creates the tables, and brings tables created by older versions up to date. */
+export function migrate(db: DatabaseSync): void {
+  db.exec(SCHEMA);
+  const columns = db.prepare("PRAGMA table_info(items)").all().map((c) =>
+    c["name"]
+  );
+  if (!columns.includes("position")) {
+    db.exec("ALTER TABLE items ADD COLUMN position TEXT");
+  }
 }
 
 function push(db: DatabaseSync, body: Json): Json {

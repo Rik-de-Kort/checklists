@@ -64,6 +64,11 @@ export function parseItem(x: unknown): Item {
   }
   const deleted = o["deleted"] ?? false;
   if (typeof deleted !== "boolean") fail("item.deleted", deleted);
+  // Missing from data written before items had a position.
+  const position = o["position"] ?? null;
+  if (position !== null && (typeof position !== "string" || position === "")) {
+    fail("item.position", position);
+  }
   return {
     id: str(o, "id", "item"),
     checklist_id: checklistId(o, "checklist_id", "item"),
@@ -72,6 +77,7 @@ export function parseItem(x: unknown): Item {
     created_at: ms(o, "created_at", "item"),
     updated_at: ms(o, "updated_at", "item"),
     deleted,
+    position,
   };
 }
 

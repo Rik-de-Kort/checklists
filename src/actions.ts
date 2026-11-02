@@ -82,6 +82,7 @@ function newItem(
     created_at: t,
     updated_at: t,
     deleted: false,
+    position: null,
   };
 }
 

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { openDb, serve } from "../server/server.ts";
+import { DatabaseSync } from "node:sqlite";
+import { migrate, openDb, serve } from "../server/server.ts";
 import * as store from "../src/store.ts";
 import { dispatch } from "../src/actions.ts";
 import { pull, sync } from "../src/sync.ts";
-import { parseRecords } from "../src/validate.ts";
 import { fresh, item, seed } from "./helpers.ts";
 
 let server: Deno.HttpServer<Deno.NetAddr>;
@@ -41,6 +41,7 @@ const milk = {
   created_at: 1,
   updated_at: 10,
   deleted: false,
+  position: null,
 };
 
 Deno.test("push then pull returns the records; older writes lose", async () => {
@@ -143,42 +144,52 @@ Deno.test("share links carry the checklist's name for link previews, and open th
   assert.ok((await unknown.text()).includes("<title>Seznam</title>"));
 });
 
-Deno.test("a database with an extra items column still syncs", async () => {
-  // The column is added in production before the server code knows about it.
-  const db = openDb(":memory:");
-  db.exec("ALTER TABLE items ADD COLUMN position TEXT");
-  const other = serve(db, {
-    hostname: "127.0.0.1",
-    port: 0,
-    onListen: () => {},
-  });
-  try {
-    const url = `http://127.0.0.1:${other.addr.port}`;
-    const send = async (path: string, body: unknown) => {
-      const res = await fetch(url + path, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      assert.equal(res.status, 200, path);
-      return res.json();
-    };
-    await send("/api/push", { checklists: [checklist], items: [milk] });
-    db.exec("UPDATE items SET position = 'a0'");
-    const newer = { ...milk, status: "checked", updated_at: 20 };
-    await send("/api/push", { items: [newer] });
-    const res = await send("/api/pull", { ids: [checklist.id] });
-    assert.deepEqual(res, {
-      checklists: [checklist],
-      items: [{ ...newer, position: "a0" }],
-    }, "updates leave the column alone");
-    assert.deepEqual(
-      parseRecords(res),
-      { checklists: [checklist], items: [newer] },
-      "the app ignores the extra field",
+Deno.test("opening a database from before item positions adds the column", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec(`
+    CREATE TABLE items (
+        id TEXT PRIMARY KEY,
+        checklist_id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        deleted INTEGER NOT NULL DEFAULT 0
     );
-  } finally {
-    await other.shutdown();
-  }
+    INSERT INTO items VALUES ('i1', 'tiger-lamp-ocean-plum-hat', 'milk', 'unchecked', 1, 10, 0);
+  `);
+  migrate(db);
+  migrate(db); // and again on the next start
+  assert.deepEqual(
+    { ...db.prepare("SELECT * FROM items").get() },
+    { ...milk, deleted: 0 },
+  );
+});
+
+Deno.test("pushes without a position, from older app versions, keep the stored one", async () => {
+  const id = "plum-tiger-hat-lamp-ocean";
+  const list = { ...checklist, id };
+  const placed = { ...milk, id: "i2", checklist_id: id, position: "a0" };
+  const pullList = async () =>
+    await (await post("/api/pull", JSON.stringify({ ids: [id] }))).json();
+  await post(
+    "/api/push",
+    JSON.stringify({ checklists: [list], items: [placed] }),
+  );
+  const old: Record<string, unknown> = {
+    ...placed,
+    status: "checked",
+    updated_at: 20,
+  };
+  delete old["position"];
+  await post("/api/push", JSON.stringify({ items: [old] }));
+  assert.deepEqual(await pullList(), {
+    checklists: [list],
+    items: [{ ...old, position: "a0" }],
+  });
+  const moved = { ...placed, position: "a0V", updated_at: 30 };
+  await post("/api/push", JSON.stringify({ items: [moved] }));
+  assert.deepEqual(await pullList(), { checklists: [list], items: [moved] });
 });
 
 Deno.test("the app syncs against the real server", async () => {
