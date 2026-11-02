@@ -3,6 +3,7 @@ import { openDb, serve } from "../server/server.ts";
 import * as store from "../src/store.ts";
 import { dispatch } from "../src/actions.ts";
 import { pull, sync } from "../src/sync.ts";
+import { parseRecords } from "../src/validate.ts";
 import { fresh, item, seed } from "./helpers.ts";
 
 let server: Deno.HttpServer<Deno.NetAddr>;
@@ -140,6 +141,44 @@ Deno.test("share links carry the checklist's name for link previews, and open th
   const unknown = await fetch(`${base}/acid-acorn-acre-acts-afar`);
   assert.equal(unknown.status, 200, "the app may still have it locally");
   assert.ok((await unknown.text()).includes("<title>Seznam</title>"));
+});
+
+Deno.test("a database with an extra items column still syncs", async () => {
+  // The column is added in production before the server code knows about it.
+  const db = openDb(":memory:");
+  db.exec("ALTER TABLE items ADD COLUMN position TEXT");
+  const other = serve(db, {
+    hostname: "127.0.0.1",
+    port: 0,
+    onListen: () => {},
+  });
+  try {
+    const url = `http://127.0.0.1:${other.addr.port}`;
+    const send = async (path: string, body: unknown) => {
+      const res = await fetch(url + path, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      assert.equal(res.status, 200, path);
+      return res.json();
+    };
+    await send("/api/push", { checklists: [checklist], items: [milk] });
+    db.exec("UPDATE items SET position = 'a0'");
+    const newer = { ...milk, status: "checked", updated_at: 20 };
+    await send("/api/push", { items: [newer] });
+    const res = await send("/api/pull", { ids: [checklist.id] });
+    assert.deepEqual(res, {
+      checklists: [checklist],
+      items: [{ ...newer, position: "a0" }],
+    }, "updates leave the column alone");
+    assert.deepEqual(
+      parseRecords(res),
+      { checklists: [checklist], items: [newer] },
+      "the app ignores the extra field",
+    );
+  } finally {
+    await other.shutdown();
+  }
 });
 
 Deno.test("the app syncs against the real server", async () => {
