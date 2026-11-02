@@ -225,3 +225,46 @@ Deno.test("undo history saved before positions existed still undoes", () => {
   assert.equal(item(milk).status, "unchecked");
   assert.equal(item(milk).position, position);
 });
+
+Deno.test("moving items, and undoing the moves", () => {
+  fresh();
+  const { checklistId, itemIds } = seed(["a", "b", "c", "d"]);
+  const [a, b, c, d] = itemIds as [string, string, string, string];
+  const labels = () => store.itemsFor(checklistId).map((i) => i.label).join("");
+  dispatch({ type: "moveItem", id: d, afterId: null });
+  assert.equal(labels(), "dabc");
+  dispatch({ type: "moveItem", id: a, afterId: c });
+  assert.equal(labels(), "dbca");
+  markSynced();
+  dispatch({ type: "moveItem", id: b, afterId: a });
+  assert.equal(labels(), "dcab");
+  undo(); // synced: written as a new change
+  assert.equal(labels(), "dbca");
+  undo();
+  undo();
+  assert.equal(labels(), "abcd");
+  assert.throws(
+    () => dispatch({ type: "moveItem", id: b, afterId: "gone" }),
+    /gone not found/,
+  );
+  assert.equal(labels(), "abcd");
+});
+
+Deno.test("moving between items with the same position", () => {
+  fresh();
+  const { checklistId, itemIds } = seed(["a", "b", "c", "d"]);
+  const [a, b, c, d] = itemIds as [string, string, string, string];
+  // Two devices both added b and c at the end while offline.
+  store.putItem({ ...item(c), position: item(b).position });
+  const labels = () => store.itemsFor(checklistId).map((i) => i.label).join("");
+  assert.equal(labels(), "abcd");
+  dispatch({ type: "moveItem", id: d, afterId: b });
+  assert.equal(labels(), "abdc");
+  dispatch({ type: "moveItem", id: a, afterId: d });
+  assert.equal(labels(), "bdac");
+  const positions = store.itemsFor(checklistId).map((i) => i.position);
+  assert.equal(new Set(positions).size, 4, positions.join());
+  undo();
+  undo();
+  assert.equal(labels(), "abcd");
+});

@@ -298,6 +298,7 @@ main {
 /* ---------- checklist ---------- */
 
 .items {
+  --handle: 28px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -314,6 +315,39 @@ main {
   display: flex;
   align-items: center;
   gap: 2px;
+  transition: transform 0.15s;
+}
+.bubble-row.dragging {
+  z-index: 2;
+  transition: none;
+}
+.dragging .bubble {
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.2);
+}
+.dragging-item,
+.dragging-item * {
+  cursor: grabbing;
+}
+
+.drag-handle {
+  flex: none;
+  align-self: stretch;
+  width: var(--handle);
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none; /* the drag, not the page, gets the finger's movement */
+  user-select: none;
+  -webkit-user-select: none;
+}
+.drag-handle svg {
+  width: 18px;
+  height: 18px;
+}
+/* A rightward swipe shows the bin where the handle is. */
+.swiping .drag-handle {
+  visibility: hidden;
 }
 
 .bubble {
@@ -423,6 +457,8 @@ main {
 
 .bubble.edit {
   width: 80%;
+  margin-left: calc(var(--handle) +
+    2px); /* line up with the bubbles beside their handles */
   font: inherit;
   color: var(--text);
   border: 2px solid var(--accent);

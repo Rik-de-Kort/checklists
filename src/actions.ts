@@ -19,7 +19,9 @@ export type ActionInput =
   | { type: "addItem"; id: string; checklistId: string; label: string }
   | { type: "editItem"; id: string; label: string }
   | { type: "toggleItem"; id: string }
-  | { type: "deleteItem"; id: string };
+  | { type: "deleteItem"; id: string }
+  /** Moves the item to just after afterId, or to the top if that's null. */
+  | { type: "moveItem"; id: string; afterId: string | null };
 
 export type Action = ActionInput & {
   at: EpochMs;
@@ -102,6 +104,22 @@ function newItem(
   };
 }
 
+// Puts item at index `at` of items (its checklist's items, without it). Two devices can give
+// items the same position; if the neighbours on both sides share one, nothing fits between them,
+// so the tied items after the slot get new positions too.
+function place(item: Item, items: Item[], at: number): void {
+  const prev = items[at - 1]?.position ?? null;
+  let end = at;
+  while (prev !== null && items[end]?.position === prev) end++;
+  const next = items[end]?.position ?? null;
+  let position = keyBetween(prev, next);
+  store.putItem(changed(item, { position }));
+  for (const tied of items.slice(at, end)) {
+    position = keyBetween(position, next);
+    store.putItem(changed(tied, { position }));
+  }
+}
+
 const handlers: Handlers = {
   createChecklist: {
     label: "Checklist created",
@@ -181,6 +199,22 @@ const handlers: Handlers = {
           status: i.status === "checked" ? "unchecked" : "checked",
         }),
       );
+    },
+  },
+  moveItem: {
+    label: "Item moved",
+    do(a) {
+      const item = found(store.getItem(a.id), `Item ${a.id}`);
+      const others = store.itemsFor(item.checklist_id).filter((i) =>
+        i.id !== a.id
+      );
+      const after = a.afterId === null
+        ? -1
+        : others.findIndex((i) => i.id === a.afterId);
+      if (after === -1 && a.afterId !== null) {
+        throw new Error(`Item ${a.afterId} not found`);
+      }
+      place(item, others, after + 1);
     },
   },
   deleteItem: {

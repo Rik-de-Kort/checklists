@@ -15,6 +15,8 @@ const SWIPE_THRESHOLD = 80;
 const LONG_PRESS_MS = 500;
 const TOAST_MS = 4000;
 const SYNC_INTERVAL_MS = 3000;
+const AUTOSCROLL_EDGE = 48; // px from the list's top or bottom where a drag scrolls it
+const AUTOSCROLL_SPEED = 8; // px per frame
 
 const ICONS = {
   back: '<polyline points="15 18 9 12 15 6"/>',
@@ -32,6 +34,8 @@ const ICONS = {
   edit:
     '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>',
   check: '<polyline points="20 6 9 17 4 12"/>',
+  grip:
+    '<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',
 } as const;
 type IconName = keyof typeof ICONS;
 
@@ -62,6 +66,7 @@ let syncStatus: SyncStatus = "idle";
 let syncing = false;
 const remoteLookups = new Map<string, Lookup>();
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
+let drag: Drag | null = null; // an item being dragged; renders wait until it's dropped
 
 export function init(): void {
   store.subscribe(render);
@@ -120,7 +125,7 @@ function parseRoute(): Route {
 const APP_NAME = "Seznam";
 
 function render(): void {
-  if (rendering) {
+  if (rendering || drag) {
     renderQueued = true;
     return;
   }
@@ -527,10 +532,16 @@ function itemView(item: Item): HTMLElement {
     h("span", { class: "tick" }, icon("check")),
     h("span", { class: "label" }, item.label),
   );
+  const handle = h("div", {
+    class: "drag-handle",
+    title: "Drag to move",
+    "aria-hidden": "true",
+  }, icon("grip"));
   const row = h(
     "div",
-    { class: "bubble-row" },
+    { class: "bubble-row", "data-id": item.id },
     h("div", { class: "swipe-bg", "aria-hidden": "true" }, icon("trash")),
+    handle,
     bubble,
     h(
       "div",
@@ -540,7 +551,118 @@ function itemView(item: Item): HTMLElement {
     ),
   );
   attachGestures(row, bubble, item);
+  attachDrag(row, handle);
   return row;
+}
+
+interface Drag {
+  row: HTMLElement;
+  rows: HTMLElement[];
+  /** Each row's vertical centre when the drag started, in the list's scrolled coordinates. */
+  mids: number[];
+  from: number;
+  to: number;
+  /** How far the other rows move to make room: the dragged row's height plus the gap. */
+  step: number;
+  startY: number;
+  startScroll: number;
+  y: number;
+  main: HTMLElement;
+  frame: number;
+}
+
+// Dragging an item's handle moves it, while the rows it passes make room. Same for touch and mouse.
+function attachDrag(row: HTMLElement, handle: HTMLElement): void {
+  handle.addEventListener("pointerdown", (e) => {
+    if (drag || e.button !== 0) return;
+    const main = row.closest("main");
+    if (!main) throw new Error("Item row is not inside <main>");
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    const rows = [...main.querySelectorAll<HTMLElement>(".bubble-row")];
+    const from = rows.indexOf(row);
+    const mids = rows.map((r) => {
+      const box = r.getBoundingClientRect();
+      return box.top + box.height / 2 + main.scrollTop;
+    });
+    const gap = parseFloat(getComputedStyle(main).rowGap) || 0;
+    drag = {
+      row,
+      rows,
+      mids,
+      from,
+      to: from,
+      step: row.getBoundingClientRect().height + gap,
+      startY: e.clientY,
+      startScroll: main.scrollTop,
+      y: e.clientY,
+      main,
+      frame: requestAnimationFrame(autoScroll),
+    };
+    row.classList.add("dragging");
+    document.body.classList.add("dragging-item");
+  });
+  handle.addEventListener("pointermove", (e) => {
+    if (drag?.row !== row) return;
+    drag.y = e.clientY;
+    updateDrag(drag);
+  });
+  handle.addEventListener("pointerup", () => {
+    if (drag?.row === row) drop(drag, true);
+  });
+  handle.addEventListener("pointercancel", () => {
+    if (drag?.row === row) drop(drag, false);
+  });
+}
+
+function updateDrag(d: Drag): void {
+  const dy = d.y - d.startY + d.main.scrollTop - d.startScroll;
+  d.row.style.transform = `translateY(${dy}px)`;
+  const centre = d.mids[d.from]! + dy;
+  d.to = d.mids.filter((m, i) => i !== d.from && m < centre).length;
+  d.rows.forEach((r, i) => {
+    const shift = i > d.from && i <= d.to
+      ? -d.step
+      : i < d.from && i >= d.to
+      ? d.step
+      : 0;
+    if (i !== d.from) r.style.transform = shift ? `translateY(${shift}px)` : "";
+  });
+}
+
+// While dragging near the list's top or bottom edge, scroll it.
+function autoScroll(): void {
+  if (!drag) return;
+  const box = drag.main.getBoundingClientRect();
+  const by = drag.y < box.top + AUTOSCROLL_EDGE
+    ? -AUTOSCROLL_SPEED
+    : drag.y > box.bottom - AUTOSCROLL_EDGE
+    ? AUTOSCROLL_SPEED
+    : 0;
+  const before = drag.main.scrollTop;
+  drag.main.scrollTop += by;
+  if (drag.main.scrollTop !== before) updateDrag(drag);
+  drag.frame = requestAnimationFrame(autoScroll);
+}
+
+function drop(d: Drag, commit: boolean): void {
+  cancelAnimationFrame(d.frame);
+  drag = null;
+  document.body.classList.remove("dragging-item");
+  d.row.classList.remove("dragging");
+  for (const r of d.rows) r.style.transform = "";
+  // A sync during the drag may have deleted items: skip those.
+  const present = (id: string | undefined): id is string =>
+    id !== undefined && store.getItem(id)?.deleted === false;
+  const id = d.row.dataset["id"];
+  if (commit && d.to !== d.from && present(id)) {
+    const afterId = d.rows.filter((r) => r !== d.row).slice(0, d.to)
+      .map((r) => r.dataset["id"]).findLast(present) ?? null;
+    dispatch({ type: "moveItem", id, afterId });
+  } else if (renderQueued) {
+    renderQueued = false;
+    render();
+  }
 }
 
 // Tap toggles. On touch: swipe left deletes, long-press edits. (Mouse gets hover buttons.)
