@@ -1,7 +1,7 @@
 # Checklists
 
-A home-cooked, offline-first, chat-style checklist PWA. TypeScript on Deno, no
-dependencies. See `spec.md`.
+A home-cooked, offline-first, chat-style checklist PWA. TypeScript on Deno, with
+one dependency (`uqr`, for QR codes). See `spec.md`.
 
 ## Run
 

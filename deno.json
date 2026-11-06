@@ -1,5 +1,8 @@
 {
   "workspace": ["src/sw"],
+  "imports": {
+    "uqr": "npm:uqr@0.1.3"
+  },
   "tasks": {
     "build": "deno bundle --platform browser -o public/js/app.js src/app.ts && deno bundle --platform browser -o public/sw.js src/sw/sw.ts",
     "dev": "deno bundle --platform browser -o public/js/app.js src/app.ts --watch & deno bundle --platform browser -o public/sw.js src/sw/sw.ts --watch & deno run --watch --allow-net --allow-read --allow-write server/server.ts",

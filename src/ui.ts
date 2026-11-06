@@ -1,5 +1,6 @@
 // View layer: hash router, the overview and checklist pages, and UI event handling.
 // Every store change triggers a full re-render of the current page; data is small.
+import { encode } from "uqr";
 import * as store from "./store.ts";
 import { canUndo, describe, dispatch, undo } from "./actions.ts";
 import { latestVersion, pull, refreshAppFiles, sync } from "./sync.ts";
@@ -14,6 +15,7 @@ import { wordId } from "./words.ts";
 const SWIPE_THRESHOLD = 80;
 const LONG_PRESS_MS = 500;
 const TOAST_MS = 4000;
+const QR_MODULE_PX = 10;
 const SYNC_INTERVAL_MS = 3000;
 const AUTOSCROLL_EDGE = 48; // px from the list's top or bottom where a drag scrolls it
 const AUTOSCROLL_SPEED = 8; // px per frame
@@ -436,6 +438,7 @@ function checklistView(id: string): Node[] {
       undoButton(),
       menu(
         menuItem("Share link", () => void share(c)),
+        menuItem("QR code", () => showQrCode(c)),
         menuItem("Clone (all unchecked)", () => clone(c)),
         menuItem("Export as text", () => exportText(c, items)),
         menuItem("Delete from this device", () => deleteChecklist(c), "danger"),
@@ -807,9 +810,47 @@ function doUndo(): void {
   );
 }
 
+// The server redirects /<id> to /#/c/<id>; it's much easier to type on a phone.
+const shareUrl = (c: Checklist) => new URL(c.id, location.href).href;
+
+function showQrCode(c: Checklist): void {
+  void runSync({ quiet: true }); // make sure the server has it before someone scans the code
+  showDialog(c.name, qrCode(shareUrl(c)));
+}
+
+// A canvas, because an SVG scaled to the screen gets seams between its squares that hurt scanning.
+function qrCode(text: string): HTMLCanvasElement {
+  const { data, size } = encode(text, { border: 4 }); // the quiet zone scanners need
+  const canvas = h("canvas", {
+    class: "qr-code",
+    width: String(size * QR_MODULE_PX),
+    height: String(size * QR_MODULE_PX),
+    role: "img",
+    "aria-label": text,
+  });
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D isn't available");
+  // Black on white in dark mode too: scanners expect it.
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#000000";
+  data.forEach((row, y) =>
+    row.forEach((dark, x) => {
+      if (dark) {
+        ctx.fillRect(
+          x * QR_MODULE_PX,
+          y * QR_MODULE_PX,
+          QR_MODULE_PX,
+          QR_MODULE_PX,
+        );
+      }
+    })
+  );
+  return canvas;
+}
+
 async function share(c: Checklist): Promise<void> {
-  // The server redirects /<id> to /#/c/<id>; it's much easier to type on a phone.
-  const url = new URL(c.id, location.href).href;
+  const url = shareUrl(c);
   void runSync({ quiet: true }); // make sure the server has it before someone opens the link
   if ("share" in navigator) {
     try {
@@ -893,10 +934,8 @@ async function install(): Promise<void> {
 
 // Safari and Firefox don't let a page offer installing, so the user has to do it from the browser.
 function showInstallHelp(): void {
-  const dialog: HTMLDialogElement = h(
-    "dialog",
-    { class: "install-help", on: { close: () => dialog.remove() } },
-    h("h2", {}, `Install ${APP_NAME}`),
+  showDialog(
+    `Install ${APP_NAME}`,
     h(
       "ul",
       {},
@@ -911,6 +950,15 @@ function showInstallHelp(): void {
         "Other browsers: open the browser's menu and look for Install or Add to Home screen.",
       ),
     ),
+  );
+}
+
+function showDialog(title: string, content: Node): void {
+  const dialog: HTMLDialogElement = h(
+    "dialog",
+    { class: "dialog", on: { close: () => dialog.remove() } },
+    h("h2", {}, title),
+    content,
     h("button", { on: { click: () => dialog.close() } }, "Close"),
   );
   document.body.append(dialog);
