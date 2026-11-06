@@ -61,6 +61,22 @@ export async function latestVersion(): Promise<number> {
   return version as number;
 }
 
+// Puts the latest app files in the service worker's cache, which is what a reload loads.
+export function refreshAppFiles(): Promise<void> {
+  const worker = "serviceWorker" in navigator
+    ? navigator.serviceWorker.controller
+    : null;
+  if (!worker) return Promise.resolve(); // nothing cached: a reload goes to the network
+  return new Promise((resolve, reject) => {
+    const { port1, port2 } = new MessageChannel();
+    port1.onmessage = (e: MessageEvent<string | null>) => {
+      if (e.data === null) resolve();
+      else reject(new Error(e.data));
+    };
+    worker.postMessage("refresh", [port2]);
+  });
+}
+
 // Fetch checklists this device doesn't have yet (e.g. from a shared link).
 // Resolves to true if at least one was found on the server.
 export async function pull(ids: string[]): Promise<boolean> {

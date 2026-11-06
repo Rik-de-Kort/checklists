@@ -1,9 +1,8 @@
-// Offline support: serve app files from the network so a launch always gets the latest deploy,
-// keeping a copy in the cache for when we're offline or the server is slow to wake up.
+// Launches are served from the cache, so they never wait for the network or for the server to wake
+// up. Each launch refreshes the cache in the background: a new deploy shows up on the next launch.
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
 const CACHE = "checklist-v3";
-const NETWORK_TIMEOUT_MS = 3000;
 const ASSETS = [
   "./",
   "index.html",
@@ -17,12 +16,14 @@ const ASSET_PATHS = new Set(
   ASSETS.map((a) => new URL(a, sw.location.href).pathname),
 );
 
+// All or nothing, so the cache never mixes files from two deploys.
+async function refresh(): Promise<void> {
+  const cache = await caches.open(CACHE);
+  await cache.addAll(ASSETS.map((a) => new Request(a, { cache: "no-cache" })));
+}
+
 sw.addEventListener("install", (e) => {
-  e.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() =>
-      sw.skipWaiting()
-    ),
-  );
+  e.waitUntil(refresh().then(() => sw.skipWaiting()));
 });
 
 sw.addEventListener("activate", (e) => {
@@ -43,30 +44,32 @@ sw.addEventListener("fetch", (e) => {
     e.request.method !== "GET" || url.origin !== sw.location.origin ||
     !ASSET_PATHS.has(url.pathname)
   ) return;
-  e.respondWith(respond(e));
+  if (e.request.mode === "navigate") {
+    e.waitUntil(
+      // Being offline is the normal case here, not an error: the cached copy keeps being served.
+      refresh().catch((err: unknown) =>
+        console.warn("Refreshing the cached app files failed:", err)
+      ),
+    );
+  }
+  e.respondWith(respond(e.request));
 });
 
-async function respond(e: FetchEvent): Promise<Response> {
+async function respond(request: Request): Promise<Response> {
   const cache = await caches.open(CACHE);
-  const network = fetch(e.request);
-  // Keep the worker alive until the copy is written; the browser may stop it right after responding.
-  e.waitUntil(
-    network
-      .then((res) => res.ok ? cache.put(e.request, res.clone()) : undefined)
-      // Being offline is the normal case here, not an error: the cached copy is served instead.
-      .catch((err: unknown) =>
-        console.warn(`Refreshing the cached ${e.request.url} failed:`, err)
-      ),
-  );
-  const cached = await cache.match(e.request, { ignoreSearch: true });
-  if (!cached) return network;
-  const timeout = new Promise<null>((resolve) =>
-    setTimeout(() => resolve(null), NETWORK_TIMEOUT_MS)
-  );
-  try {
-    const res = await Promise.race([network, timeout]);
-    return res?.ok ? res : cached;
-  } catch {
-    return cached; // offline; already logged above
-  }
+  return await cache.match(request, { ignoreSearch: true }) ?? fetch(request);
 }
+
+// "Check for updates" asks for the new files now, and reloads once they're in the cache.
+sw.addEventListener("message", (e) => {
+  const port = e.ports[0];
+  if (e.data !== "refresh" || !port) {
+    throw new Error(`Unexpected message: ${JSON.stringify(e.data)}`);
+  }
+  e.waitUntil(
+    refresh().then(
+      () => port.postMessage(null),
+      (err: unknown) => port.postMessage(String(err)),
+    ),
+  );
+});
