@@ -268,3 +268,60 @@ Deno.test("moving between items with the same position", () => {
   undo();
   assert.equal(labels(), "abcd");
 });
+
+Deno.test("moving checklists, and undoing the moves", () => {
+  fresh();
+  const [a, b, c] = [seed([]), seed([]), seed([])].map((s) =>
+    s.checklistId
+  ) as [
+    string,
+    string,
+    string,
+  ];
+  const order = () => store.listChecklists().map((s) => s.checklist.id);
+  assert.deepEqual(order(), [c, b, a], "newest first until one is moved");
+  dispatch({ type: "moveChecklist", id: a, afterId: null });
+  assert.deepEqual(order(), [a, c, b]);
+  dispatch({ type: "moveChecklist", id: a, afterId: b });
+  assert.deepEqual(order(), [c, b, a]);
+  dispatch({ type: "addItem", id: "x", checklistId: b, label: "new activity" });
+  assert.deepEqual(order(), [c, b, a], "activity no longer moves a placed one");
+  undo();
+  undo();
+  assert.deepEqual(order(), [a, c, b]);
+  markSynced();
+  undo(); // the order isn't synced: undoing is the same either way
+  assert.deepEqual(store.exportData().checklists.length, 3);
+  assert.deepEqual(order(), [c, b, a]);
+  assert.throws(
+    () => dispatch({ type: "moveChecklist", id: a, afterId: "gone" }),
+    /gone not found/,
+  );
+});
+
+Deno.test("placed checklists keep their place through new ones, deleting and reloading", () => {
+  fresh();
+  const [a, b, c] = [seed([]), seed([]), seed([])].map((s) =>
+    s.checklistId
+  ) as [
+    string,
+    string,
+    string,
+  ];
+  const order = () => store.listChecklists().map((s) => s.checklist.id);
+  dispatch({ type: "moveChecklist", id: a, afterId: b });
+  assert.deepEqual(order(), [c, b, a]);
+  const d = seed([]).checklistId;
+  assert.deepEqual(order(), [d, c, b, a], "a new one goes on top");
+  dispatch({ type: "deleteChecklist", id: b });
+  assert.deepEqual(order(), [d, c, a]);
+  undo();
+  assert.deepEqual(
+    order(),
+    [d, c, b, a],
+    "undoing a delete puts it back in place",
+  );
+  store.init();
+  assert.deepEqual(order(), [d, c, b, a], "kept in storage");
+  assert.ok(!("listOrder" in store.exportData()), "not sent to the server");
+});

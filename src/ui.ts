@@ -350,6 +350,14 @@ function overviewView(): Node[] {
   ];
 }
 
+function dragHandle(): HTMLDivElement {
+  return h("div", {
+    class: "drag-handle",
+    title: "Drag to move",
+    "aria-hidden": "true",
+  }, icon("grip"));
+}
+
 function chatRow(
   { checklist, last, total, done, activity }: ChecklistSummary,
 ): HTMLDivElement {
@@ -392,13 +400,16 @@ function chatRow(
       ),
     ),
   );
+  const handle = dragHandle();
   const row = h(
     "div",
-    { class: "chat-slot" },
+    { class: "chat-slot", "data-id": checklist.id },
     h("div", { class: "swipe-bg", "aria-hidden": "true" }, icon("trash")),
+    handle,
     link,
   );
   attachSwipe(row, link, () => deleteChecklist(checklist));
+  attachDrag(row, handle, DRAG_CHECKLISTS);
   return row;
 }
 
@@ -555,11 +566,7 @@ function itemView(item: Item): HTMLElement {
     h("span", { class: "tick" }, icon("check")),
     h("span", { class: "label" }, item.label),
   );
-  const handle = h("div", {
-    class: "drag-handle",
-    title: "Drag to move",
-    "aria-hidden": "true",
-  }, icon("grip"));
+  const handle = dragHandle();
   const row = h(
     "div",
     { class: "bubble-row", "data-id": item.id },
@@ -574,11 +581,31 @@ function itemView(item: Item): HTMLElement {
     ),
   );
   attachGestures(row, bubble, item);
-  attachDrag(row, handle);
+  attachDrag(row, handle, DRAG_ITEMS);
   return row;
 }
 
+// What a draggable list needs to tell the drag code.
+interface DragList {
+  rowSelector: string;
+  exists(id: string): boolean;
+  move(id: string, afterId: string | null): void;
+}
+
+const DRAG_ITEMS: DragList = {
+  rowSelector: ".bubble-row",
+  exists: (id) => store.getItem(id)?.deleted === false,
+  move: (id, afterId) => dispatch({ type: "moveItem", id, afterId }),
+};
+
+const DRAG_CHECKLISTS: DragList = {
+  rowSelector: ".chat-slot",
+  exists: (id) => store.getChecklist(id) !== undefined,
+  move: (id, afterId) => dispatch({ type: "moveChecklist", id, afterId }),
+};
+
 interface Drag {
+  list: DragList;
   row: HTMLElement;
   rows: HTMLElement[];
   /** Each row's vertical centre when the drag started, in the list's scrolled coordinates. */
@@ -595,14 +622,18 @@ interface Drag {
 }
 
 // Dragging an item's handle moves it, while the rows it passes make room. Same for touch and mouse.
-function attachDrag(row: HTMLElement, handle: HTMLElement): void {
+function attachDrag(
+  row: HTMLElement,
+  handle: HTMLElement,
+  list: DragList,
+): void {
   handle.addEventListener("pointerdown", (e) => {
     if (drag || e.button !== 0) return;
     const main = row.closest("main");
-    if (!main) throw new Error("Item row is not inside <main>");
+    if (!main) throw new Error("Dragged row is not inside <main>");
     e.preventDefault();
     handle.setPointerCapture(e.pointerId);
-    const rows = [...main.querySelectorAll<HTMLElement>(".bubble-row")];
+    const rows = [...main.querySelectorAll<HTMLElement>(list.rowSelector)];
     const from = rows.indexOf(row);
     const mids = rows.map((r) => {
       const box = r.getBoundingClientRect();
@@ -610,6 +641,7 @@ function attachDrag(row: HTMLElement, handle: HTMLElement): void {
     });
     const gap = parseFloat(getComputedStyle(main).rowGap) || 0;
     drag = {
+      list,
       row,
       rows,
       mids,
@@ -674,14 +706,14 @@ function drop(d: Drag, commit: boolean): void {
   document.body.classList.remove("dragging-item");
   d.row.classList.remove("dragging");
   for (const r of d.rows) r.style.transform = "";
-  // A sync during the drag may have deleted items: skip those.
+  // A sync during the drag may have deleted rows: skip those.
   const present = (id: string | undefined): id is string =>
-    id !== undefined && store.getItem(id)?.deleted === false;
+    id !== undefined && d.list.exists(id);
   const id = d.row.dataset["id"];
   if (commit && d.to !== d.from && present(id)) {
     const afterId = d.rows.filter((r) => r !== d.row).slice(0, d.to)
       .map((r) => r.dataset["id"]).findLast(present) ?? null;
-    dispatch({ type: "moveItem", id, afterId });
+    d.list.move(id, afterId);
   } else if (renderQueued) {
     renderQueued = false;
     render();

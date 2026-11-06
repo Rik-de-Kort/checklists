@@ -27,7 +27,12 @@ let db: Db | null = null;
 let recording: Snapshot | null = null;
 
 function emptyDb(): Db {
-  return { checklists: {}, items: {}, syncedThrough: 0 as EpochMs };
+  return {
+    checklists: {},
+    items: {},
+    syncedThrough: 0 as EpochMs,
+    listOrder: [],
+  };
 }
 
 // Unreadable data is never replaced by an empty database: we keep a copy and refuse to start,
@@ -118,6 +123,7 @@ export function record(fn: () => void): { before: Snapshot; after: Snapshot } {
     for (const id of Object.keys(before.items)) {
       after.items[id] = getItem(id) ?? null;
     }
+    if (before.listOrder) after.listOrder = data().listOrder;
     return { before, after };
   } finally {
     recording = null;
@@ -134,6 +140,13 @@ function trackItem(id: string): void {
   if (recording && !(id in recording.items)) {
     recording.items[id] = getItem(id) ?? null;
   }
+}
+
+export function setListOrder(ids: string[]): void {
+  if (recording && !recording.listOrder) {
+    recording.listOrder = data().listOrder;
+  }
+  data().listOrder = ids;
 }
 
 export function putChecklist(c: Checklist): void {
@@ -155,6 +168,9 @@ export function deleteItemRecord(id: string): void {
 export function removeChecklistLocal(id: string): void {
   trackChecklist(id);
   delete data().checklists[id];
+  if (data().listOrder.includes(id)) {
+    setListOrder(data().listOrder.filter((other) => other !== id));
+  }
   for (const i of Object.values(data().items)) {
     if (i.checklist_id === id) deleteItemRecord(i.id);
   }
@@ -178,7 +194,8 @@ function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-// Checklists ordered by most recent item, falling back to the checklist's own creation time.
+// Checklists in the order they were dragged into. Those not placed yet, which is all of them until
+// the first drag, go first, by most recent item or else the checklist's own creation time.
 export function listChecklists(): ChecklistSummary[] {
   const stats: Record<
     string,
@@ -191,6 +208,8 @@ export function listChecklists(): ChecklistSummary[] {
     if (i.status === "checked") s.done++;
     if (!s.last || i.created_at > s.last.created_at) s.last = i;
   }
+  const rank = new Map(data().listOrder.map((id, i) => [id, i]));
+  const rankOf = (id: string) => rank.get(id) ?? -1;
   return Object.values(data().checklists)
     .map((checklist) => {
       const s = stats[checklist.id] ?? { last: null, total: 0, done: 0 };
@@ -200,7 +219,10 @@ export function listChecklists(): ChecklistSummary[] {
         activity: s.last ? s.last.created_at : checklist.created_at,
       };
     })
-    .sort((a, b) => b.activity - a.activity);
+    .sort((a, b) =>
+      rankOf(a.checklist.id) - rankOf(b.checklist.id) ||
+      b.activity - a.activity
+    );
 }
 
 // ---------- sync / export ----------

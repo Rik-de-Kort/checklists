@@ -21,7 +21,9 @@ export type ActionInput =
   | { type: "toggleItem"; id: string }
   | { type: "deleteItem"; id: string }
   /** Moves the item to just after afterId, or to the top if that's null. */
-  | { type: "moveItem"; id: string; afterId: string | null };
+  | { type: "moveItem"; id: string; afterId: string | null }
+  /** Moves the checklist to just after afterId, or to the top if that's null. */
+  | { type: "moveChecklist"; id: string; afterId: string | null };
 
 export type Action = ActionInput & {
   at: EpochMs;
@@ -217,6 +219,21 @@ const handlers: Handlers = {
       place(item, others, after + 1);
     },
   },
+  moveChecklist: {
+    label: "Checklist moved",
+    do(a) {
+      found(store.getChecklist(a.id), `Checklist ${a.id}`);
+      // Fixes the order of all of them, as shown now: from here on they stay where they are put.
+      const others = store.listChecklists().map((s) => s.checklist.id)
+        .filter((id) => id !== a.id);
+      const after = a.afterId === null ? -1 : others.indexOf(a.afterId);
+      if (after === -1 && a.afterId !== null) {
+        throw new Error(`Checklist ${a.afterId} not found`);
+      }
+      others.splice(after + 1, 0, a.id);
+      store.setListOrder(others);
+    },
+  },
   deleteItem: {
     label: "Item deleted",
     do(a) {
@@ -296,6 +313,7 @@ function restoreFields<T extends Checklist | Item>(
 }
 
 function revert(a: Action, unsynced: boolean): void {
+  if (a.before.listOrder) store.setListOrder(a.before.listOrder);
   for (const [id, prev] of Object.entries(a.before.checklists)) {
     const after = a.after.checklists[id] ?? null;
     const cur = store.getChecklist(id) ?? null;

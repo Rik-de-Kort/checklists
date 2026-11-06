@@ -36,6 +36,11 @@ export interface Db {
   items: Record<string, Item>;
   /** Every change stamped before this was included in a successful sync. */
   syncedThrough: EpochMs;
+  /**
+   * Checklist ids in the order they were dragged into. Stays on this device: checklists are shared,
+   * and one person's order shouldn't rearrange another's. Checklists not in it are shown first.
+   */
+  listOrder: string[];
 }
 
 /** Export/import and wire format. */
@@ -48,4 +53,6 @@ export interface Records {
 export interface Snapshot {
   checklists: Record<string, Checklist | null>;
   items: Record<string, Item | null>;
+  /** Only there if the action changed the order. */
+  listOrder?: string[];
 }

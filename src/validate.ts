@@ -120,5 +120,12 @@ export function parseDb(x: unknown): Db {
   const syncedThrough = o["syncedThrough"] === undefined
     ? (0 as EpochMs)
     : ms(o, "syncedThrough", "database");
-  return { checklists, items, syncedThrough };
+  // Data from before checklists could be moved has no order.
+  const listOrder = list(o["listOrder"], "database.listOrder").map((id) => {
+    if (typeof id !== "string" || !CHECKLIST_ID.test(id)) {
+      fail("database.listOrder", id);
+    }
+    return id;
+  });
+  return { checklists, items, syncedThrough, listOrder };
 }

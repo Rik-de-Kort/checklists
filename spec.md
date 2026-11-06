@@ -25,8 +25,10 @@ checklist.
 
 Overview contains a list of checklists, similar to chat application interface.
 Order by most recently updated (order by select max(created at) from item where
-checklist = id) In bottom right button to create a new checklist. In top bar one
-button to sync.
+checklist = id) until the user drags a checklist to another place: from then on
+this device keeps that order, with new checklists on top. The order isn't
+synced. In bottom right button to create a new checklist. In top bar one button
+to sync.
 
 Checklist contains a single checklist. Items are sorted by created at. In the
 bottom a message box to create a new checklist item. In the top a share button
