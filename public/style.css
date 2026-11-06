@@ -33,6 +33,24 @@
   }
 }
 
+/* Always light, also when the system is set to dark. */
+:root[data-theme="pink"] {
+  --bg: #f3ece2;
+  --surface: #fbf7f1;
+  --text: #3d302c;
+  --muted: #6e5f58;
+  --line: #e6dbcf;
+  --accent: #a85f73;
+  --accent-text: #ffffff;
+  --bubble: #f4dcdd;
+  --bubble-checked: #eae3d8;
+  --danger: #a5463c;
+  --toast-bg: #4b3c38;
+  --toast-text: #f8f2ea;
+  --toast-action: #f3bdc8;
+  color-scheme: light;
+}
+
 * {
   box-sizing: border-box;
 }

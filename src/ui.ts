@@ -16,6 +16,8 @@ const SWIPE_THRESHOLD = 80;
 const LONG_PRESS_MS = 500;
 const TOAST_MS = 4000;
 const QR_MODULE_PX = 10;
+const THEME_KEY = "seznam-theme"; // also read by index.html
+const THEME_COLORS = { normal: "#0b7a5c", pink: "#a85f73" };
 const SYNC_INTERVAL_MS = 3000;
 const AUTOSCROLL_EDGE = 48; // px from the list's top or bottom where a drag scrolls it
 const AUTOSCROLL_SPEED = 8; // px per frame
@@ -77,6 +79,7 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 export function init(): void {
+  applyTheme();
   store.subscribe(render);
   globalThis.addEventListener("hashchange", () => {
     route = parseRoute();
@@ -88,6 +91,7 @@ export function init(): void {
   });
   globalThis.addEventListener("storage", (e) => {
     if (e.key === store.KEY) store.reload();
+    if (e.key === THEME_KEY) applyTheme();
   });
   globalThis.addEventListener("online", () => void runSync({ quiet: true }));
   document.addEventListener("keydown", (e) => {
@@ -331,6 +335,7 @@ function overviewView(): Node[] {
         menuItem("Import JSON…", () => importInput.click()),
         menuItem("Check for updates", () => void checkForUpdates()),
         isInstalled() ? null : menuItem("Install app", () => void install()),
+        menuItem(isPink() ? "Mr Rik mode" : "Dr Ada mode", togglePink),
         menuItem("About", () => toast(`${APP_NAME} version ${VERSION}`)),
       ),
     ),
@@ -976,6 +981,29 @@ async function checkForUpdates(): Promise<void> {
     return;
   }
   location.reload();
+}
+
+// ---------- theme ----------
+
+// A setting of this device, so it isn't with the checklists in the store.
+const isPink = (): boolean => localStorage.getItem(THEME_KEY) === "pink";
+
+function applyTheme(): void {
+  const pink = isPink();
+  if (pink) document.documentElement.dataset["theme"] = "pink";
+  else delete document.documentElement.dataset["theme"];
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) {
+    throw new Error('<meta name="theme-color"> is missing from index.html');
+  }
+  meta.setAttribute("content", pink ? THEME_COLORS.pink : THEME_COLORS.normal);
+}
+
+function togglePink(): void {
+  if (isPink()) localStorage.removeItem(THEME_KEY);
+  else localStorage.setItem(THEME_KEY, "pink");
+  applyTheme();
+  render(); // the menu item's label
 }
 
 // ---------- install ----------

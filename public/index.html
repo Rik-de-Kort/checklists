@@ -9,6 +9,12 @@
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="style.css">
+    <!-- Here and not in app.js, so the page doesn't flash the normal colors first. Key: see ui.ts. -->
+    <script>
+    if (localStorage.getItem("seznam-theme") === "pink") {
+      document.documentElement.dataset.theme = "pink";
+    }
+    </script>
     <script type="module" src="js/app.js"></script>
   </head>
   <body>
