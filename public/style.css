@@ -193,6 +193,36 @@ button {
   color: var(--danger);
 }
 
+.install-help {
+  max-width: min(360px, calc(100% - 32px));
+  padding: 20px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.install-help h2 {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+}
+.install-help ul {
+  margin: 0 0 16px;
+  padding-left: 20px;
+}
+.install-help li + li {
+  margin-top: 8px;
+}
+.install-help button {
+  display: block;
+  margin-left: auto;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  cursor: pointer;
+}
+
 /* ---------- overview ---------- */
 
 main {

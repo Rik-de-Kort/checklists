@@ -67,6 +67,12 @@ let syncing = false;
 const remoteLookups = new Map<string, Lookup>();
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let drag: Drag | null = null; // an item being dragged; renders wait until it's dropped
+let installPrompt: BeforeInstallPromptEvent | null = null;
+
+// Only Chromium browsers have this event, so it isn't in TypeScript's DOM types.
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<unknown>;
+}
 
 export function init(): void {
   store.subscribe(render);
@@ -101,6 +107,10 @@ export function init(): void {
     }
   });
   importInput.addEventListener("change", () => void importJson());
+  globalThis.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault(); // we offer it from the menu instead of the browser's own banner
+    installPrompt = e as BeforeInstallPromptEvent;
+  });
   render();
   void runSync({ quiet: true });
   // Push our changes and pull everyone else's; runSync skips a tick while one is still in flight.
@@ -277,7 +287,7 @@ function syncButton(): HTMLButtonElement {
   );
 }
 
-function menu(...entries: HTMLButtonElement[]): HTMLDetailsElement {
+function menu(...entries: (HTMLButtonElement | null)[]): HTMLDetailsElement {
   return h(
     "details",
     { class: "menu" },
@@ -318,6 +328,7 @@ function overviewView(): Node[] {
         menuItem("Export all (JSON)", exportJson),
         menuItem("Import JSON…", () => importInput.click()),
         menuItem("Check for updates", () => void checkForUpdates()),
+        isInstalled() ? null : menuItem("Install app", () => void install()),
         menuItem("About", () => toast(`${APP_NAME} version ${VERSION}`)),
       ),
     ),
@@ -855,6 +866,55 @@ async function checkForUpdates(): Promise<void> {
     return;
   }
   location.reload();
+}
+
+// ---------- install ----------
+
+function isInstalled(): boolean {
+  // navigator.standalone is how Safari on iOS says the same thing.
+  return globalThis.matchMedia("(display-mode: standalone)").matches ||
+    ("standalone" in navigator && navigator.standalone === true);
+}
+
+async function install(): Promise<void> {
+  if (!installPrompt) {
+    showInstallHelp();
+    return;
+  }
+  const prompt = installPrompt;
+  installPrompt = null; // each event can only prompt once
+  try {
+    await prompt.prompt();
+  } catch (e) {
+    console.error("The install prompt failed:", e);
+    showInstallHelp();
+  }
+}
+
+// Safari and Firefox don't let a page offer installing, so the user has to do it from the browser.
+function showInstallHelp(): void {
+  const dialog: HTMLDialogElement = h(
+    "dialog",
+    { class: "install-help", on: { close: () => dialog.remove() } },
+    h("h2", {}, `Install ${APP_NAME}`),
+    h(
+      "ul",
+      {},
+      h(
+        "li",
+        {},
+        "Safari on iPhone or iPad: tap Share, then Add to Home Screen.",
+      ),
+      h(
+        "li",
+        {},
+        "Other browsers: open the browser's menu and look for Install or Add to Home screen.",
+      ),
+    ),
+    h("button", { on: { click: () => dialog.close() } }, "Close"),
+  );
+  document.body.append(dialog);
+  dialog.showModal();
 }
 
 function setSyncStatus(s: SyncStatus): void {
