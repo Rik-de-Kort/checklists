@@ -352,8 +352,8 @@ function overviewView(): Node[] {
 
 function chatRow(
   { checklist, last, total, done, activity }: ChecklistSummary,
-): HTMLAnchorElement {
-  return h(
+): HTMLDivElement {
+  const link = h(
     "a",
     { class: "chat-row", href: `#/c/${checklist.id}` },
     h(
@@ -392,6 +392,14 @@ function chatRow(
       ),
     ),
   );
+  const row = h(
+    "div",
+    { class: "chat-slot" },
+    h("div", { class: "swipe-bg", "aria-hidden": "true" }, icon("trash")),
+    link,
+  );
+  attachSwipe(row, link, () => deleteChecklist(checklist));
+  return row;
 }
 
 // ---------- checklist ----------
@@ -680,40 +688,33 @@ function drop(d: Drag, commit: boolean): void {
   }
 }
 
-// Tap toggles. On touch: swipe left deletes, long-press edits. (Mouse gets hover buttons.)
-function attachGestures(
+// Touch only: dragging target sideways past the threshold, either way, deletes. The swipe doesn't
+// also count as a click. Returns a function that ends the swipe, for a gesture that takes over.
+function attachSwipe(
   row: HTMLElement,
-  bubble: HTMLElement,
-  item: Item,
-): void {
+  target: HTMLElement,
+  onDelete: () => void,
+): () => void {
   let start: { x: number; y: number } | null = null;
   let dx = 0;
-  let timer: ReturnType<typeof setTimeout> | undefined;
   let suppressClick = false;
 
   const reset = (): void => {
-    clearTimeout(timer);
     start = null;
-    bubble.style.transform = "";
+    target.style.transform = "";
     row.classList.remove("swiping", "armed", "rightward");
   };
 
-  bubble.addEventListener("pointerdown", (e) => {
+  target.addEventListener("pointerdown", (e) => {
     if (e.pointerType === "mouse") return;
     start = { x: e.clientX, y: e.clientY };
     dx = 0;
     suppressClick = false;
-    timer = setTimeout(() => {
-      reset();
-      suppressClick = true;
-      startEdit(item.id);
-    }, LONG_PRESS_MS);
   });
-  bubble.addEventListener("pointermove", (e) => {
+  target.addEventListener("pointermove", (e) => {
     if (!start) return;
     const mx = e.clientX - start.x;
     const my = e.clientY - start.y;
-    if (Math.abs(mx) > 8 || Math.abs(my) > 8) clearTimeout(timer);
     if (dx === 0 && Math.abs(my) > 8 && Math.abs(my) > Math.abs(mx)) {
       reset(); // vertical scroll; let the browser have it
       return;
@@ -721,26 +722,62 @@ function attachGestures(
     dx = mx; // either direction deletes
     if (Math.abs(dx) > 8) {
       suppressClick = true;
-      bubble.setPointerCapture(e.pointerId);
+      target.setPointerCapture(e.pointerId);
       row.classList.add("swiping");
     }
     row.classList.toggle("rightward", dx > 0);
     row.classList.toggle("armed", Math.abs(dx) > SWIPE_THRESHOLD);
-    bubble.style.transform = `translateX(${dx}px)`;
+    target.style.transform = `translateX(${dx}px)`;
   });
-  bubble.addEventListener("pointerup", () => {
-    if (start && Math.abs(dx) > SWIPE_THRESHOLD) deleteItem(item.id);
+  target.addEventListener("pointerup", () => {
+    if (start && Math.abs(dx) > SWIPE_THRESHOLD) onDelete();
     else reset();
   });
-  bubble.addEventListener("pointercancel", reset);
-  bubble.addEventListener("contextmenu", (e) => e.preventDefault());
-  bubble.addEventListener("click", () => {
-    if (suppressClick) {
-      suppressClick = false;
-      return;
-    }
-    dispatch({ type: "toggleItem", id: item.id });
+  target.addEventListener("pointercancel", reset);
+  target.addEventListener("click", (e) => {
+    if (!suppressClick) return;
+    suppressClick = false;
+    e.preventDefault(); // a link stays put
+    e.stopImmediatePropagation();
   });
+  return () => {
+    reset();
+    suppressClick = true;
+  };
+}
+
+// Tap toggles. On touch: swipe deletes, long-press edits. (Mouse gets hover buttons.)
+function attachGestures(
+  row: HTMLElement,
+  bubble: HTMLElement,
+  item: Item,
+): void {
+  const endSwipe = attachSwipe(row, bubble, () => deleteItem(item.id));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let start: { x: number; y: number } | null = null;
+
+  bubble.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse") return;
+    start = { x: e.clientX, y: e.clientY };
+    timer = setTimeout(() => {
+      endSwipe();
+      startEdit(item.id);
+    }, LONG_PRESS_MS);
+  });
+  bubble.addEventListener("pointermove", (e) => {
+    if (
+      start && (Math.abs(e.clientX - start.x) > 8 ||
+        Math.abs(e.clientY - start.y) > 8)
+    ) clearTimeout(timer);
+  });
+  for (const type of ["pointerup", "pointercancel"]) {
+    bubble.addEventListener(type, () => clearTimeout(timer));
+  }
+  bubble.addEventListener("contextmenu", (e) => e.preventDefault());
+  bubble.addEventListener(
+    "click",
+    () => dispatch({ type: "toggleItem", id: item.id }),
+  );
   bubble.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
