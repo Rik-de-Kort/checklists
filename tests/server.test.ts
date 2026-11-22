@@ -3,7 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { migrate, openDb, serve } from "../server/server.ts";
 import * as store from "../src/store.ts";
 import { dispatch } from "../src/actions.ts";
-import { latestVersion, pull, sync } from "../src/sync.ts";
+import { latestVersion, pull, push } from "../src/sync.ts";
 import { VERSION } from "../src/version.ts";
 import { fresh, item, seed } from "./helpers.ts";
 
@@ -197,7 +197,7 @@ Deno.test("the app syncs against the real server", async () => {
   fresh();
   const { checklistId, itemIds: [eggs] } = seed(["eggs"]);
   assert.ok(eggs);
-  await sync();
+  await push();
   // Another device changes the item; this device's next sync picks it up.
   const remote = {
     ...item(eggs),
@@ -205,11 +205,11 @@ Deno.test("the app syncs against the real server", async () => {
     updated_at: item(eggs).updated_at + 1,
   };
   await post("/api/push", JSON.stringify({ items: [remote] }));
-  await sync();
+  await pull();
   assert.equal(item(eggs).status, "checked");
   // And a change here reaches a device that only has the link.
   dispatch({ type: "editItem", id: eggs, label: "free-range eggs" });
-  await sync();
+  await push();
   fresh();
   await pull([checklistId]);
   assert.equal(item(eggs).label, "free-range eggs");

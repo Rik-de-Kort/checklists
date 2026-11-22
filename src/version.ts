@@ -53,6 +53,10 @@ export const HISTORY: { version: number; hash: string }[] = [
     version: 13,
     hash: "ce3ea8a1adb8426d7f4cfd86d31c56305288e2161515427b2b81a5228667e796",
   },
+  {
+    version: 14,
+    hash: "8dda4292ff5f1ef13587441574b36a21e00089393a85fc2ceb953e1870e2c0f1",
+  },
 ];
 
 const latest = HISTORY.at(-1);

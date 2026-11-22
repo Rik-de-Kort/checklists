@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import * as store from "../src/store.ts";
 import { dispatch, undo } from "../src/actions.ts";
-import { sync } from "../src/sync.ts";
+import { pull, push } from "../src/sync.ts";
 import { fresh, item, seed } from "./helpers.ts";
 
 Object.defineProperty(globalThis, "location", {
@@ -30,32 +30,32 @@ function fakeServer(onPush: () => void = () => {}): void {
     });
 }
 
-Deno.test("changes made before a sync are undone as synced changes", async () => {
+Deno.test("changes made before a push are undone as synced changes", async () => {
   fresh();
   const { itemIds: [milk] } = seed(["milk"]);
   assert.ok(milk);
   fakeServer();
-  await sync();
+  await push();
   assert.equal(undo()?.local, false);
   assert.equal(item(milk).deleted, true);
 });
 
-Deno.test("a change made while a sync is in flight still counts as unsynced", async () => {
+Deno.test("a change made while a push is in flight still counts as unsynced", async () => {
   fresh();
   const { itemIds: [milk] } = seed(["milk"]);
   assert.ok(milk);
   fakeServer(() => dispatch({ type: "toggleItem", id: milk }));
-  await sync();
+  await push();
   assert.equal(item(milk).status, "checked");
   assert.equal(undo()?.local, true);
   assert.equal(item(milk).status, "unchecked");
 });
 
-Deno.test("a sync that brings nothing new doesn't re-render or write", async () => {
+Deno.test("a pull that brings nothing new doesn't re-render or write", async () => {
   fresh();
   seed(["milk"]);
   fakeServer();
-  await sync(); // pushes the seeded changes
+  await push();
   let renders = 0;
   store.subscribe(() => renders++);
   const setItem = localStorage.setItem;
@@ -65,7 +65,7 @@ Deno.test("a sync that brings nothing new doesn't re-render or write", async () 
     setItem.call(localStorage, k, v);
   };
   try {
-    await sync();
+    await pull();
   } finally {
     localStorage.setItem = setItem;
   }
@@ -73,7 +73,7 @@ Deno.test("a sync that brings nothing new doesn't re-render or write", async () 
   assert.equal(writes, 0);
 });
 
-Deno.test("a failed sync leaves everything unsynced and reports the error", async () => {
+Deno.test("a failed push leaves everything unsynced and reports the error", async () => {
   fresh();
   seed(["milk"]);
   globalThis.fetch = () =>
@@ -84,9 +84,40 @@ Deno.test("a failed sync leaves everything unsynced and reports the error", asyn
       }),
     );
   await assert.rejects(
-    sync(),
+    push(),
     /api\/push: 500 Internal Server Error \{"error": "db locked"\}/,
   );
   assert.equal(store.syncedThrough(), 0);
   assert.equal(undo()?.local, true);
+});
+
+Deno.test("a pull doesn't mark anything as pushed", async () => {
+  fresh();
+  seed(["milk"]);
+  fakeServer();
+  await pull();
+  assert.equal(store.syncedThrough(), 0);
+  assert.equal(undo()?.local, true);
+});
+
+Deno.test("a pull doesn't resurrect a checklist deleted while it was in flight", async () => {
+  fresh();
+  const { checklistId } = seed(["milk"]);
+  const data = store.exportData();
+  globalThis.fetch = () => {
+    store.removeChecklistLocal(checklistId);
+    return Promise.resolve(Response.json(data));
+  };
+  await pull();
+  assert.equal(store.getChecklist(checklistId), undefined);
+});
+
+Deno.test("a pull fetches a checklist this device doesn't have yet", async () => {
+  fresh();
+  const { checklistId } = seed(["milk"]);
+  const data = store.exportData();
+  store.removeChecklistLocal(checklistId);
+  globalThis.fetch = () => Promise.resolve(Response.json(data));
+  assert.equal(await pull([checklistId]), true);
+  assert.ok(store.getChecklist(checklistId));
 });

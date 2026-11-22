@@ -1,4 +1,4 @@
-// Two-way sync with the server: push everything local, then pull back the checklists we hold.
+// Sync with the server: push everything local after a change, pull the checklists we hold.
 import * as store from "./store.ts";
 import { now } from "./time.ts";
 import { parseRecords } from "./validate.ts";
@@ -18,30 +18,22 @@ async function post(path: string, body: unknown): Promise<unknown> {
   return res.json();
 }
 
-export async function sync(): Promise<void> {
+// Push the whole local database. Pulling happens separately (see pull()).
+export async function push(): Promise<void> {
   // Changes stamped before this are in the snapshot we push; later ones (made while the
   // request is in flight) are not, and must still count as unsynced for undo.
   const snapshotAt = now();
-  const local = store.exportData();
-  const unsynced = [...local.checklists, ...local.items].some((r) =>
+  await post("api/push", store.exportData());
+  store.setSyncedThrough(snapshotAt);
+  store.persist(); // bookkeeping only: nothing visible changed
+}
+
+// Whether anything changed locally since the last successful push.
+export function unpushed(): boolean {
+  const { checklists, items } = store.exportData();
+  return [...checklists, ...items].some((r) =>
     r.updated_at > store.syncedThrough()
   );
-  await post("api/push", local);
-  const remote = parseRecords(
-    await post("api/pull", { ids: local.checklists.map((c) => c.id) }),
-  );
-  // Don't resurrect checklists deleted locally while the request was in flight.
-  const kept: Records = {
-    checklists: remote.checklists.filter((c) => store.getChecklist(c.id)),
-    items: remote.items,
-  };
-  const changed = store.merge(kept);
-  store.setSyncedThrough(snapshotAt);
-  // This runs every few seconds: only re-render when something arrived, or the page would be
-  // rebuilt under the user's fingers (resetting the keyboard mid-word). Only write when needed,
-  // since every write makes other open tabs reload.
-  if (changed) store.save();
-  else if (unsynced) store.persist();
 }
 
 // The app version the server has: what a reload would load.
@@ -77,10 +69,24 @@ export function refreshAppFiles(): Promise<void> {
   });
 }
 
-// Fetch checklists this device doesn't have yet (e.g. from a shared link).
-// Resolves to true if at least one was found on the server.
-export async function pull(ids: string[]): Promise<boolean> {
+// Pull the given checklists (by default all we hold) and merge them in. Also fetches checklists
+// this device doesn't have yet (e.g. from a shared link). Resolves to true if at least one was
+// found on the server.
+export async function pull(
+  ids: string[] = store.exportData().checklists.map((c) => c.id),
+): Promise<boolean> {
+  const held = new Set(ids.filter((id) => store.getChecklist(id)));
   const remote = parseRecords(await post("api/pull", { ids }));
-  if (store.merge(remote)) store.save();
+  // Don't resurrect checklists deleted locally while the request was in flight.
+  const kept: Records = {
+    checklists: remote.checklists.filter((c) =>
+      !held.has(c.id) || store.getChecklist(c.id)
+    ),
+    items: remote.items,
+  };
+  // This runs every few seconds: only re-render when something arrived, or the page would be
+  // rebuilt under the user's fingers (resetting the keyboard mid-word). Only write when needed,
+  // since every write makes other open tabs reload.
+  if (store.merge(kept)) store.save();
   return remote.checklists.length > 0;
 }

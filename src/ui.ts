@@ -2,8 +2,15 @@
 // Every store change triggers a full re-render of the current page; data is small.
 import { encode } from "uqr";
 import * as store from "./store.ts";
-import { canUndo, describe, dispatch, undo } from "./actions.ts";
-import { latestVersion, pull, refreshAppFiles, sync } from "./sync.ts";
+import { canUndo, describe, dispatch as apply, undo } from "./actions.ts";
+import type { ActionInput } from "./actions.ts";
+import {
+  latestVersion,
+  pull,
+  push,
+  refreshAppFiles,
+  unpushed,
+} from "./sync.ts";
 import { message } from "./errors.ts";
 import { localDate, relTime, toInstant } from "./time.ts";
 import { CHECKLIST_ID, parseRecords } from "./validate.ts";
@@ -67,7 +74,9 @@ let editingId: string | null = null;
 let pendingFocus: string | null = null; // data-key of an input to focus and select after the next render
 let scrollToBottom = false;
 let syncStatus: SyncStatus = "idle";
-let syncing = false;
+let pulling = false;
+let pushTimer: ReturnType<typeof setTimeout> | undefined;
+let pushQueue: Promise<void> = Promise.resolve();
 const remoteLookups = new Map<string, Lookup>();
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let drag: Drag | null = null; // an item being dragged; renders wait until it's dropped
@@ -118,13 +127,13 @@ export function init(): void {
     installPrompt = e as BeforeInstallPromptEvent;
   });
   render();
-  void runSync({ quiet: true });
-  // Push our changes and pull everyone else's; runSync skips a tick while one is still in flight.
+  void runSync({ quiet: true }); // pushes changes left over from last time, if any
+  // Pull everyone else's changes; ours are pushed after each change (see schedulePush).
   setInterval(() => {
-    if (!document.hidden) void runSync({ quiet: true });
+    if (!document.hidden) void runPull();
   }, SYNC_INTERVAL_MS);
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) void runSync({ quiet: true });
+    if (!document.hidden) void runPull();
   });
 }
 
@@ -878,6 +887,7 @@ function doUndo(): void {
     toast("Nothing to undo");
     return;
   }
+  schedulePush();
   const what = describe(result.action).toLowerCase();
   toast(
     result.local ? `Undone: ${what}` : `Undone: ${what} (synced on next sync)`,
@@ -947,21 +957,64 @@ async function share(c: Checklist): Promise<void> {
   }
 }
 
+// Every local change goes through here, so it gets pushed.
+function dispatch(input: ActionInput): void {
+  apply(input);
+  schedulePush();
+}
+
+// Pushes the whole database SYNC_INTERVAL_MS after the first unpushed change. Changes made in the
+// meantime ride along with that push rather than restarting the timer.
+function schedulePush(): void {
+  pushTimer ??= setTimeout(() => {
+    flushPush().then(
+      () => setSyncStatus("idle"),
+      (e: unknown) => {
+        console.error("Push failed, retrying:", e);
+        setSyncStatus("error");
+        schedulePush();
+      },
+    );
+  }, SYNC_INTERVAL_MS);
+}
+
+// Pushes now, after any push still in flight: overlapping pushes could set syncedThrough back.
+function flushPush(): Promise<void> {
+  clearTimeout(pushTimer);
+  pushTimer = undefined;
+  const run = pushQueue.catch(() => {}).then(push); // the earlier push's caller reports its error
+  pushQueue = run;
+  return run;
+}
+
+// The periodic pull; skips a tick while one is still in flight.
+async function runPull(): Promise<void> {
+  if (pulling) return;
+  pulling = true;
+  try {
+    await pull();
+    setSyncStatus("idle");
+  } catch (e) {
+    console.error("Pull failed:", e);
+    setSyncStatus("error");
+  } finally {
+    pulling = false;
+  }
+}
+
+// Push any unpushed changes right away, then pull.
 async function runSync({ quiet = false } = {}): Promise<void> {
-  if (syncing) return;
-  syncing = true;
   // Background syncs don't spin the button: re-rendering every few seconds disrupts typing.
   if (!quiet) setSyncStatus("busy");
   try {
-    await sync();
+    if (pushTimer !== undefined || unpushed()) await flushPush();
+    await pull();
     setSyncStatus("idle");
     if (!quiet) toast("Synced");
   } catch (e) {
     console.error("Sync failed:", e);
     setSyncStatus("error");
     if (!quiet) toast(`Sync failed: ${message(e)}`);
-  } finally {
-    syncing = false;
   }
 }
 
@@ -1113,6 +1166,7 @@ async function importJson(): Promise<void> {
   }
   store.merge(records);
   store.save();
+  schedulePush();
   toast("Imported");
 }
 

@@ -63,7 +63,9 @@ and keeps 5 days.
 - `src/sync.ts` + `server/server.ts`: `POST /api/push {checklists, items}` and
   `POST /api/pull {ids}`, merged last-writer-wins per record on both sides,
   using each device's clock. The server validates pushes with the app's own
-  `src/validate.ts`.
+  `src/validate.ts`. The app pulls every 3 s while visible, and pushes the whole
+  database 3 s after the first unpushed change (later changes ride along; the
+  timer doesn't restart).
 - Deleting a checklist only removes it from this device; the server copy stays,
   and opening its link again pulls it back.
 - No accounts or auth: a checklist's ID in the share link is the only key to it.
